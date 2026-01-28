@@ -1,0 +1,49 @@
+name: Wordor
+description: "Master new words with spaced repetition"
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  drift: ^2.14.0
+  sqlite3_flutter_libs: ^0.5.0
+  sqlite3: ^2.4.0
+  path_provider: ^2.1.0
+  path: ^1.8.0
+  flutter_riverpod: ^2.4.0
+  flutter_secure_storage: ^9.0.0
+  flutter_local_notifications: ^17.0.0
+  http: ^1.1.0
+  timezone: ^0.9.0
+  shared_preferences: ^2.2.0
+  cupertino_icons: ^1.0.8
+
+  # Background task scheduling for notifications
+  android_alarm_manager_plus: ^4.0.3
+
+  # Voice input
+  speech_to_text: ^7.0.0
+  permission_handler: ^11.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  drift_dev: ^2.14.0
+  build_runner: ^2.4.0
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#1a1a1a"
+  adaptive_icon_foreground: "assets/icon.png"
+
+flutter:
+  uses-material-design: true
