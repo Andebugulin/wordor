@@ -1,5 +1,9 @@
 # Wordor
 
+<div style="text-align: center;">
+  <img src="assets/icon.png" alt="Translate page" width="20%" />
+</div>
+
 Boosted translator with industry standard memory algorithm, made to help you learn translations right away!
 
 # Idea
@@ -24,6 +28,12 @@ then I would go to translate it, and then it would actually be something interes
 ### Optional Notifications
 
 ## Screenshots
+
+<div style="display: flex; justify-content: space-around; align-items: center;">
+  <img src="assets/translate_page.png" alt="Translate page" width="30%" />
+  <img src="assets/recall_page.png" alt="Recall page" width="30%" />
+  <img src="assets/settings_page.png" alt="Settings page" width="30%" />
+</div>
 
 ## Getting Started
 
