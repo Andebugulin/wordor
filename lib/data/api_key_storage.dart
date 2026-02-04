@@ -4,6 +4,7 @@ class ApiKeyStorage {
   static const _storage = FlutterSecureStorage();
   static const _apiKeyKey = 'deepl_api_key';
   static const _geminiApiKeyKey = 'gemini_api_key';
+  static const _huggingfaceApiKeyKey = 'huggingface_api_key';
 
   // DeepL API Key methods
   Future<void> saveApiKey(String apiKey) async {
@@ -38,6 +39,24 @@ class ApiKeyStorage {
 
   Future<bool> hasGeminiApiKey() async {
     final key = await getGeminiApiKey();
+    return key != null && key.isNotEmpty;
+  }
+
+  // HuggingFace API Key methods
+  Future<void> saveHuggingFaceApiKey(String apiKey) async {
+    await _storage.write(key: _huggingfaceApiKeyKey, value: apiKey);
+  }
+
+  Future<String?> getHuggingFaceApiKey() async {
+    return await _storage.read(key: _huggingfaceApiKeyKey);
+  }
+
+  Future<void> deleteHuggingFaceApiKey() async {
+    await _storage.delete(key: _huggingfaceApiKeyKey);
+  }
+
+  Future<bool> hasHuggingFaceApiKey() async {
+    final key = await getHuggingFaceApiKey();
     return key != null && key.isNotEmpty;
   }
 }

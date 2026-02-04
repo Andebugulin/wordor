@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/app_providers.dart';
 import '../services/notification_service.dart';
-import '../services/gemini_service.dart';
+import '../services/ai_hint_service.dart';
 import 'word_library_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -15,19 +16,25 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notificationsEnabled = false;
   String _notificationTime = 'Not set';
+  AIProvider _selectedAIProvider = AIProvider.huggingface;
 
   @override
   void initState() {
     super.initState();
-    _loadNotificationSettings();
+    _loadSettings();
   }
 
-  Future<void> _loadNotificationSettings() async {
+  Future<void> _loadSettings() async {
     final enabled = await NotificationService.areNotificationsEnabled();
     final savedTime = await NotificationService.getSavedNotificationTime();
+    final prefs = await SharedPreferences.getInstance();
+    final providerName = prefs.getString('ai_provider') ?? 'huggingface';
 
     setState(() {
       _notificationsEnabled = enabled;
+      _selectedAIProvider = providerName == 'gemini'
+          ? AIProvider.gemini
+          : AIProvider.huggingface;
       if (savedTime != null) {
         final hour = savedTime['hour']!;
         final minute = savedTime['minute']!;
@@ -37,6 +44,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ).format(context);
       }
     });
+  }
+
+  Future<void> _saveAIProvider(AIProvider provider) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      'ai_provider',
+      provider == AIProvider.gemini ? 'gemini' : 'huggingface',
+    );
+    setState(() => _selectedAIProvider = provider);
+    ref.invalidate(aiProviderPreferenceProvider);
+    ref.invalidate(aiHintServiceProvider);
   }
 
   @override
@@ -69,22 +87,102 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
+
+                  // DeepL API Key
                   _SettingsTile(
                     icon: Icons.key_outlined,
                     title: 'DeepL API Key',
                     subtitle: 'Required for translation',
                     onTap: () => _showDeepLApiKeyDialog(context, ref),
                   ),
-                  const SizedBox(height: 8),
-                  _SettingsTile(
-                    icon: Icons.auto_awesome_outlined,
-                    title: 'Gemini API Key (Optional)',
-                    subtitle: 'For AI-generated hints & examples',
-                    onTap: () => _showGeminiApiKeyDialog(context, ref),
+                  const SizedBox(height: 16),
+
+                  // AI Provider Section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      'AI Hints (Optional)',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
 
-                  // Notification Toggle
+                  // AI Provider selector
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'AI Provider',
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 12),
+                        RadioListTile<AIProvider>(
+                          title: const Text('HuggingFace (Recommended)'),
+                          subtitle: const Text('Free, fast, reliable'),
+                          value: AIProvider.huggingface,
+                          groupValue: _selectedAIProvider,
+                          onChanged: (value) =>
+                              value != null ? _saveAIProvider(value) : null,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        RadioListTile<AIProvider>(
+                          title: const Text('Gemini'),
+                          subtitle: const Text('Google AI'),
+                          value: AIProvider.gemini,
+                          groupValue: _selectedAIProvider,
+                          onChanged: (value) =>
+                              value != null ? _saveAIProvider(value) : null,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // HuggingFace API Key
+                  _SettingsTile(
+                    icon: Icons.auto_awesome_outlined,
+                    title: 'HuggingFace API Key',
+                    subtitle: _selectedAIProvider == AIProvider.huggingface
+                        ? 'Get free key at huggingface.co'
+                        : 'Not active',
+                    onTap: () => _showHuggingFaceApiKeyDialog(context, ref),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Gemini API Key
+                  _SettingsTile(
+                    icon: Icons.auto_awesome_outlined,
+                    title: 'Gemini API Key',
+                    subtitle: _selectedAIProvider == AIProvider.gemini
+                        ? 'Get free key at ai.google.dev'
+                        : 'Not active',
+                    onTap: () => _showGeminiApiKeyDialog(context, ref),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Notifications section
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      'Notifications',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -134,19 +232,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               await _showTimePickerDialog(context);
                             } else {
                               await NotificationService.cancelDailyNotification();
-                              setState(() {
-                                _notificationsEnabled = false;
-                              });
+                              setState(() => _notificationsEnabled = false);
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text(
-                                      'Daily reminders disabled',
-                                    ),
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
+                                  const SnackBar(
+                                    content: Text('Daily reminders disabled'),
                                   ),
                                 );
                               }
@@ -168,6 +258,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
 
                   const SizedBox(height: 32),
+
+                  // Debug section
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -191,7 +283,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     subtitle: 'Test recall immediately',
                     onTap: () => _makeAllWordsDue(context, ref),
                   ),
+
                   const SizedBox(height: 32),
+
+                  // Danger zone
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -209,7 +304,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onTap: () => _showClearDataDialog(context, ref),
                     isDestructive: true,
                   ),
+
                   const SizedBox(height: 32),
+
+                  // App info
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Column(
@@ -221,7 +319,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Version 1.0.0',
+                          'Version 1.1.0',
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
                                 color: Theme.of(
@@ -229,23 +327,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ).colorScheme.onSurfaceVariant.withOpacity(0.5),
                               ),
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Get FREE Gemini API Key at:',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'ai.google.dev',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -255,35 +340,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  // Dialog methods (DeepL, HuggingFace, Gemini, etc.)
   Future<void> _showDeepLApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
   ) async {
     final controller = TextEditingController();
-
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('DeepL API Key'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Required for translation',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'Paste your DeepL API key',
-                prefixIcon: Icon(Icons.key),
-              ),
-              obscureText: true,
-              autofocus: true,
-            ),
-          ],
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Paste your DeepL API key',
+          ),
+          obscureText: true,
         ),
         actions: [
           TextButton(
@@ -302,33 +374,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final storage = ref.read(apiKeyStorageProvider);
       await storage.saveApiKey(result);
       ref.invalidate(apiKeyProvider);
-
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('DeepL API key updated'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('DeepL API key updated')));
       }
     }
   }
 
-  Future<void> _showGeminiApiKeyDialog(
+  Future<void> _showHuggingFaceApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
   ) async {
     final controller = TextEditingController();
-
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            const Text('Gemini API Key'),
+            const Text('HuggingFace API Key'),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -337,7 +401,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                'Optional',
+                'Recommended',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.w600,
@@ -348,47 +412,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Enables AI-generated hints and example sentences',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Get FREE key at ai.google.dev',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
+            Text('Free at huggingface.co/settings/tokens'),
+            const SizedBox(height: 16),
             TextField(
               controller: controller,
               decoration: const InputDecoration(
-                hintText: 'Paste your Gemini API key',
-                prefixIcon: Icon(Icons.auto_awesome),
+                hintText: 'Paste HuggingFace API key',
               ),
               obscureText: true,
-              autofocus: true,
             ),
           ],
         ),
@@ -396,18 +429,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           TextButton(
             onPressed: () async {
               final storage = ref.read(apiKeyStorageProvider);
-              await storage.deleteGeminiApiKey();
-              ref.invalidate(geminiApiKeyProvider);
+              await storage.deleteHuggingFaceApiKey();
+              ref.invalidate(huggingfaceApiKeyProvider);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Gemini API key removed'),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
+                  const SnackBar(content: Text('HuggingFace API key removed')),
                 );
               }
             },
@@ -428,41 +455,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (result != null && result.isNotEmpty) {
       final storage = ref.read(apiKeyStorageProvider);
 
-      // Show loading
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Validating API key...'),
-            duration: const Duration(seconds: 10),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
+          const SnackBar(
+            content: Text('Validating API key...'),
+            duration: Duration(seconds: 10),
           ),
         );
       }
 
-      // Validate the key first
-      final gemini = GeminiService(result);
-      final validationResult = await gemini.validateApiKey();
+      final aiService = AIHintService(result, AIProvider.huggingface);
+      final validation = await aiService.validateApiKey();
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
       }
 
-      if (!validationResult['valid']) {
+      if (!validation['valid']) {
         if (context.mounted) {
-          // Show detailed error in a dialog
           showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('API Key Validation Failed'),
-              content: SingleChildScrollView(
-                child: Text(
-                  validationResult['message'] ?? 'Unknown error',
-                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                ),
-              ),
+              content: Text(validation['message'] ?? 'Unknown error'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
@@ -475,19 +490,77 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
 
-      await storage.saveGeminiApiKey(result);
-      ref.invalidate(geminiApiKeyProvider);
+      await storage.saveHuggingFaceApiKey(result);
+      ref.invalidate(huggingfaceApiKeyProvider);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Gemini API key saved successfully!'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
+          const SnackBar(content: Text('HuggingFace API key saved!')),
         );
+      }
+    }
+  }
+
+  Future<void> _showGeminiApiKeyDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    // Similar implementation as HuggingFace dialog
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gemini API Key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Free at ai.google.dev'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Paste Gemini API key',
+              ),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final storage = ref.read(apiKeyStorageProvider);
+              await storage.deleteGeminiApiKey();
+              ref.invalidate(geminiApiKeyProvider);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Gemini API key removed')),
+                );
+              }
+            },
+            child: const Text('Remove'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      final storage = ref.read(apiKeyStorageProvider);
+      await storage.saveGeminiApiKey(result);
+      ref.invalidate(geminiApiKeyProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Gemini API key saved!')));
       }
     }
   }
@@ -508,17 +581,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         hour: time.hour,
         minute: time.minute,
       );
-
-      await _loadNotificationSettings();
-
+      await _loadSettings();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Daily reminder set for ${time.format(context)}'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
           ),
         );
       }
@@ -531,19 +598,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ) async {
     final db = ref.read(databaseProvider);
     final count = await db.getDueWordCount();
-
     await NotificationService.showImmediateNotification(count > 0 ? count : 1);
-
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Test notification sent'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Test notification sent')));
     }
   }
 
@@ -553,8 +612,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Make All Words Due?'),
         content: const Text(
-          'This will make all saved words available for review immediately. '
-          'This is for testing only.',
+          'This will make all saved words available for review immediately.',
         ),
         actions: [
           TextButton(
@@ -574,17 +632,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await db.makeAllWordsDueNow();
       ref.invalidate(dueWordsProvider);
       ref.invalidate(dueWordCountProvider);
-
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('All words are now due for review'),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
+          const SnackBar(content: Text('All words are now due for review')),
         );
       }
     }
@@ -596,7 +646,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Clear All Data?'),
         content: const Text(
-          'This will permanently delete all saved words and progress. This action cannot be undone.',
+          'This will permanently delete all saved words and progress.',
         ),
         actions: [
           TextButton(
@@ -618,20 +668,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final db = ref.read(databaseProvider);
       await db.delete(db.words).go();
       await db.delete(db.recalls).go();
-
       ref.invalidate(dueWordsProvider);
       ref.invalidate(dueWordCountProvider);
-
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('All data cleared'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('All data cleared')));
       }
     }
   }

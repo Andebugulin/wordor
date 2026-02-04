@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../data/database.dart';
 import '../data/deepl_service.dart';
 import '../services/gemini_service.dart';
+import '../services/ai_hint_service.dart';
 import '../data/api_key_storage.dart';
 
 // Database provider
@@ -20,16 +22,28 @@ final apiKeyProvider = FutureProvider<String?>((ref) async {
   return await storage.getApiKey();
 });
 
-// Gemini API key state provider
+// Gemini API key state provider (legacy)
 final geminiApiKeyProvider = FutureProvider<String?>((ref) async {
   final storage = ref.watch(apiKeyStorageProvider);
   return await storage.getGeminiApiKey();
 });
 
+// HuggingFace API key state provider
+final huggingfaceApiKeyProvider = FutureProvider<String?>((ref) async {
+  final storage = ref.watch(apiKeyStorageProvider);
+  return await storage.getHuggingFaceApiKey();
+});
+
+// AI provider preference
+final aiProviderPreferenceProvider = FutureProvider<AIProvider>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  final providerName = prefs.getString('ai_provider') ?? 'huggingface';
+  return providerName == 'gemini' ? AIProvider.gemini : AIProvider.huggingface;
+});
+
 // DeepL service provider
 final deepLServiceProvider = Provider<DeepLService?>((ref) {
   final apiKeyAsync = ref.watch(apiKeyProvider);
-
   return apiKeyAsync.when(
     data: (apiKey) => apiKey != null ? DeepLService(apiKey) : null,
     loading: () => null,
@@ -37,10 +51,39 @@ final deepLServiceProvider = Provider<DeepLService?>((ref) {
   );
 });
 
-// Gemini service provider
+// AI hint service provider (unified)
+final aiHintServiceProvider = Provider<AIHintService?>((ref) {
+  final provider = ref.watch(aiProviderPreferenceProvider);
+
+  return provider.when(
+    data: (aiProvider) {
+      if (aiProvider == AIProvider.huggingface) {
+        final apiKeyAsync = ref.watch(huggingfaceApiKeyProvider);
+        return apiKeyAsync.when(
+          data: (apiKey) => apiKey != null
+              ? AIHintService(apiKey, AIProvider.huggingface)
+              : null,
+          loading: () => null,
+          error: (_, __) => null,
+        );
+      } else {
+        final apiKeyAsync = ref.watch(geminiApiKeyProvider);
+        return apiKeyAsync.when(
+          data: (apiKey) =>
+              apiKey != null ? AIHintService(apiKey, AIProvider.gemini) : null,
+          loading: () => null,
+          error: (_, __) => null,
+        );
+      }
+    },
+    loading: () => null,
+    error: (_, __) => null,
+  );
+});
+
+// Legacy gemini service (for backwards compatibility)
 final geminiServiceProvider = Provider<GeminiService?>((ref) {
   final apiKeyAsync = ref.watch(geminiApiKeyProvider);
-
   return apiKeyAsync.when(
     data: (apiKey) => apiKey != null ? GeminiService(apiKey) : null,
     loading: () => null,
