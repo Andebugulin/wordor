@@ -34,6 +34,12 @@ final huggingfaceApiKeyProvider = FutureProvider<String?>((ref) async {
   return await storage.getHuggingFaceApiKey();
 });
 
+// HuggingFace model preference provider
+final huggingfaceModelProvider = FutureProvider<String?>((ref) async {
+  final storage = ref.watch(apiKeyStorageProvider);
+  return await storage.getHuggingFaceModel();
+});
+
 // AI provider preference
 final aiProviderPreferenceProvider = FutureProvider<AIProvider>((ref) async {
   final prefs = await SharedPreferences.getInstance();
@@ -51,7 +57,7 @@ final deepLServiceProvider = Provider<DeepLService?>((ref) {
   );
 });
 
-// AI hint service provider (unified)
+// AI hint service provider (unified with custom model support)
 final aiHintServiceProvider = Provider<AIHintService?>((ref) {
   final provider = ref.watch(aiProviderPreferenceProvider);
 
@@ -59,10 +65,22 @@ final aiHintServiceProvider = Provider<AIHintService?>((ref) {
     data: (aiProvider) {
       if (aiProvider == AIProvider.huggingface) {
         final apiKeyAsync = ref.watch(huggingfaceApiKeyProvider);
+        final modelAsync = ref.watch(huggingfaceModelProvider);
+
         return apiKeyAsync.when(
-          data: (apiKey) => apiKey != null
-              ? AIHintService(apiKey, AIProvider.huggingface)
-              : null,
+          data: (apiKey) {
+            if (apiKey == null) return null;
+
+            return modelAsync.when(
+              data: (model) => AIHintService(
+                apiKey,
+                AIProvider.huggingface,
+                customModel: model,
+              ),
+              loading: () => AIHintService(apiKey, AIProvider.huggingface),
+              error: (_, __) => AIHintService(apiKey, AIProvider.huggingface),
+            );
+          },
           loading: () => null,
           error: (_, __) => null,
         );

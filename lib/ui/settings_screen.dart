@@ -17,6 +17,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notificationsEnabled = false;
   String _notificationTime = 'Not set';
   AIProvider _selectedAIProvider = AIProvider.huggingface;
+  String? _selectedHFModel;
 
   @override
   void initState() {
@@ -30,11 +31,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     final providerName = prefs.getString('ai_provider') ?? 'huggingface';
 
+    final storage = ref.read(apiKeyStorageProvider);
+    final savedModel = await storage.getHuggingFaceModel();
+
     setState(() {
       _notificationsEnabled = enabled;
       _selectedAIProvider = providerName == 'gemini'
           ? AIProvider.gemini
           : AIProvider.huggingface;
+      _selectedHFModel = savedModel;
       if (savedTime != null) {
         final hour = savedTime['hour']!;
         final minute = savedTime['minute']!;
@@ -55,6 +60,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() => _selectedAIProvider = provider);
     ref.invalidate(aiProviderPreferenceProvider);
     ref.invalidate(aiHintServiceProvider);
+  }
+
+  Future<void> _saveHFModel(String modelId) async {
+    final storage = ref.read(apiKeyStorageProvider);
+    await storage.saveHuggingFaceModel(modelId);
+    setState(() => _selectedHFModel = modelId);
+    ref.invalidate(huggingfaceModelProvider);
+    ref.invalidate(aiHintServiceProvider);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Model changed to ${AIHintService.recommendedModels.firstWhere((m) => m.id == modelId).name}',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -127,7 +151,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         const SizedBox(height: 12),
                         RadioListTile<AIProvider>(
                           title: const Text('HuggingFace (Recommended)'),
-                          subtitle: const Text('Free, fast, reliable'),
+                          subtitle: const Text(
+                            'Free, fast, customizable models',
+                          ),
                           value: AIProvider.huggingface,
                           groupValue: _selectedAIProvider,
                           onChanged: (value) =>
@@ -157,6 +183,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         : 'Not active',
                     onTap: () => _showHuggingFaceApiKeyDialog(context, ref),
                   ),
+
+                  // HuggingFace Model Selector
+                  if (_selectedAIProvider == AIProvider.huggingface) ...[
+                    const SizedBox(height: 8),
+                    _SettingsTile(
+                      icon: Icons.settings_suggest_outlined,
+                      title: 'HuggingFace Model',
+                      subtitle: _getModelName(_selectedHFModel),
+                      onTap: () => _showModelSelector(context),
+                    ),
+                  ],
+
                   const SizedBox(height: 8),
 
                   // Gemini API Key
@@ -319,7 +357,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Version 1.1.0',
+                          'Version 1.2.0',
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
                                 color: Theme.of(
@@ -340,7 +378,162 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // Dialog methods (DeepL, HuggingFace, Gemini, etc.)
+  String _getModelName(String? modelId) {
+    if (modelId == null) {
+      return 'Default (Mistral 7B)';
+    }
+
+    // Check if it's one of the recommended models
+    final model = AIHintService.recommendedModels.firstWhere(
+      (m) => m.id == modelId,
+      orElse: () => const HFModel(
+        name: 'Custom Model',
+        id: '__custom__',
+        description: '',
+      ),
+    );
+
+    if (model.id == '__custom__') {
+      // Custom model - show truncated version
+      if (modelId.length > 30) {
+        return '${modelId.substring(0, 27)}...';
+      }
+      return modelId;
+    }
+
+    return model.name;
+  }
+
+  Future<void> _showModelSelector(BuildContext context) async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Select HuggingFace Model',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            ...AIHintService.recommendedModels.map((model) {
+              final isSelected =
+                  _selectedHFModel == model.id ||
+                  (_selectedHFModel == null &&
+                      model.id == AIHintService.defaultHFModel);
+
+              return ListTile(
+                leading: Icon(
+                  isSelected ? Icons.check_circle : Icons.circle_outlined,
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                title: Row(
+                  children: [
+                    Text(model.name),
+                    if (model.recommended) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'RECOMMENDED',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                subtitle: Text(model.description),
+                onTap: () async {
+                  if (model.id == '__custom__') {
+                    Navigator.pop(context);
+                    await _showCustomModelDialog(context);
+                  } else {
+                    Navigator.pop(context, model.id);
+                  }
+                },
+                selected: isSelected,
+              );
+            }),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null && result != '__custom__') {
+      await _saveHFModel(result);
+    }
+  }
+
+  Future<void> _showCustomModelDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Custom HuggingFace Model'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter the model string from HuggingFace Router API:',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText:
+                    'e.g., mistralai/Mistral-7B-Instruct-v0.2:featherless-ai',
+                helperText: 'Format: provider/model:endpoint',
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      await _saveHFModel(result);
+    }
+  }
+
+  // Dialog methods remain the same as before
   Future<void> _showDeepLApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
@@ -414,7 +607,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Free at huggingface.co/settings/tokens'),
+            const Text('Free at huggingface.co/settings/tokens'),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
@@ -505,7 +698,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     BuildContext context,
     WidgetRef ref,
   ) async {
-    // Similar implementation as HuggingFace dialog
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
@@ -515,7 +707,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Free at ai.google.dev'),
+            const Text('Free at ai.google.dev'),
             const SizedBox(height: 16),
             TextField(
               controller: controller,

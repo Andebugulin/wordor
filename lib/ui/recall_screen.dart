@@ -23,28 +23,26 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   final List<int> _reviewedIds = [];
   bool _sessionComplete = false;
 
-  // Hint state
-  final Set<HintType> _usedHints = {};
-  String? _aiExample;
-  String? _aiExplanation;
+  // Hint state - now tracks which hints are shown, not just used
+  final Set<HintType> _shownHints = {};
+  final Map<HintType, String> _hintContents = {};
   bool _loadingHint = false;
 
   void _showNextWord() {
     setState(() {
       _currentIndex++;
       _totalReviewed++;
-      _usedHints.clear();
-      _aiExample = null;
-      _aiExplanation = null;
+      _shownHints.clear();
+      _hintContents.clear();
       _loadingHint = false;
     });
   }
 
   Future<void> _showHint(HintType type, Word word) async {
-    if (_usedHints.contains(type)) return; // Already shown
+    if (_shownHints.contains(type)) return; // Already shown
 
     setState(() {
-      _usedHints.add(type);
+      _shownHints.add(type);
       if (type == HintType.aiExample || type == HintType.aiExplanation) {
         _loadingHint = true;
       }
@@ -55,7 +53,10 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       final aiService = ref.read(aiHintServiceProvider);
 
       if (aiService == null) {
-        setState(() => _loadingHint = false);
+        setState(() {
+          _loadingHint = false;
+          _shownHints.remove(type);
+        });
         return;
       }
 
@@ -67,7 +68,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
           );
           if (mounted) {
             setState(() {
-              _aiExample = example;
+              _hintContents[type] = example;
               _loadingHint = false;
             });
           }
@@ -79,14 +80,17 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
           );
           if (mounted) {
             setState(() {
-              _aiExplanation = explanation;
+              _hintContents[type] = explanation;
               _loadingHint = false;
             });
           }
         }
       } catch (e) {
         if (mounted) {
-          setState(() => _loadingHint = false);
+          setState(() {
+            _loadingHint = false;
+            _shownHints.remove(type);
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Hint generation failed: $e'),
@@ -94,6 +98,13 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             ),
           );
         }
+      }
+    } else {
+      // For non-AI hints, set content immediately
+      if (type == HintType.firstLetter) {
+        _hintContents[type] = word.translation[0].toUpperCase();
+      } else if (type == HintType.fullAnswer) {
+        _hintContents[type] = word.translation;
       }
     }
   }
@@ -142,11 +153,19 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       _totalReviewed = 0;
       _reviewedIds.clear();
       _sessionTotal = null;
-      _usedHints.clear();
-      _aiExample = null;
-      _aiExplanation = null;
+      _shownHints.clear();
+      _hintContents.clear();
     });
     ref.invalidate(dueWordsProvider);
+  }
+
+  // Smart font size calculation based on word length
+  double _calculateWordFontSize(String word) {
+    if (word.length <= 8) return 56;
+    if (word.length <= 12) return 48;
+    if (word.length <= 16) return 40;
+    if (word.length <= 20) return 36;
+    return 32;
   }
 
   @override
@@ -155,6 +174,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     final hasAI = ref.watch(aiHintServiceProvider) != null;
 
     return Scaffold(
+      backgroundColor: AppTheme.surfaceColor,
       body: SafeArea(
         child: dueWordsAsync.when(
           data: (words) {
@@ -163,14 +183,12 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                 .where((w) => !_reviewedIds.contains(w.word.id))
                 .toList();
 
-            // Session complete
             if (pendingWords.isEmpty &&
                 _reviewedIds.isNotEmpty &&
                 !_sessionComplete) {
               return _buildSessionComplete();
             }
 
-            // No words
             if (pendingWords.isEmpty) {
               return _buildNoWords();
             }
@@ -211,39 +229,43 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     final total = _sessionTotal!;
     final reviewed = _totalReviewed.clamp(0, total);
     final progress = total == 0 ? 0.0 : reviewed / total;
-    final hasUsedHint = _usedHints.isNotEmpty;
+    final hasUsedHint = _shownHints.isNotEmpty;
 
     return Column(
       children: [
-        // Progress bar at top
-        Padding(
-          padding: const EdgeInsets.all(24.0),
+        // Minimalistic progress header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
           child: Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Recall',
-                    style: Theme.of(context).textTheme.headlineMedium,
+                    '$reviewed / $total',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                   Text(
-                    '$reviewed / $total',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
+                    '${((progress * 100).toInt())}%',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textSecondary,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
                   value: progress,
-                  minHeight: 6,
-                  backgroundColor: AppTheme.surfaceVariant,
-                  valueColor: AlwaysStoppedAnimation(
-                    Theme.of(context).colorScheme.primary,
+                  minHeight: 3,
+                  backgroundColor: const Color(0xFF2A2A38),
+                  valueColor: const AlwaysStoppedAnimation(
+                    AppTheme.primaryColor,
                   ),
                 ),
               ),
@@ -251,147 +273,140 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
           ),
         ),
 
-        // Main content - word at top
+        // Main word display - centered and prominent
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
+            padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const SizedBox(height: 20),
+                const SizedBox(height: 40),
 
-                // Word card - prominent at top
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                        Theme.of(context).colorScheme.surface,
-                      ],
+                // The word itself - hero element with smart sizing
+                Column(
+                  children: [
+                    Text(
+                      word.source,
+                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                        fontSize: _calculateWordFontSize(word.source),
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -2,
+                        height: 1.1,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primary.withOpacity(0.2),
-                      width: 2,
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        'What does this mean?',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 20),
+
+                    // Pronunciation button
+                    IconButton.outlined(
+                      onPressed: () =>
+                          TtsService.speak(word.source, word.sourceLang),
+                      icon: const Icon(Icons.volume_up_outlined, size: 24),
+                      style: IconButton.styleFrom(
+                        side: const BorderSide(
+                          color: Color(0xFF2A2A38),
+                          width: 1.5,
                         ),
+                        padding: const EdgeInsets.all(16),
                       ),
-                      const SizedBox(height: 20),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              word.source,
-                              style: Theme.of(context).textTheme.displayMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    height: 1.2,
-                                  ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          IconButton.filled(
-                            onPressed: () =>
-                                TtsService.speak(word.source, word.sourceLang),
-                            icon: const Icon(Icons.volume_up, size: 28),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.primary,
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.all(16),
-                            ),
-                          ),
-                        ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Language indicator
+                    Text(
+                      '${word.sourceLang} → ${word.targetLang}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textTertiary,
+                        letterSpacing: 1,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 48),
 
-                // Hint buttons grid
+                // Active hints display - ALL hints shown together
+                if (_shownHints.isNotEmpty) ...[
+                  _buildAllHints(word),
+                  const SizedBox(height: 32),
+                ],
+
+                // Hint buttons - always visible unless all used
                 _buildHintButtons(word, hasAI),
 
-                const SizedBox(height: 24),
-
-                // Display active hints
-                if (_usedHints.isNotEmpty) _buildActiveHints(word),
+                const SizedBox(height: 40),
               ],
             ),
           ),
         ),
 
-        // Action buttons at bottom
-        Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _markUnknown(wordRecall),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 64),
-                    side: BorderSide(
-                      color: AppTheme.errorColor.withOpacity(0.5),
-                      width: 2,
-                    ),
-                  ),
-                  icon: const Icon(Icons.close, size: 24),
-                  label: const Text('Forgot', style: TextStyle(fontSize: 16)),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: hasUsedHint ? 1 : 2,
-                child: hasUsedHint
-                    ? OutlinedButton.icon(
-                        onPressed: () => _markPartial(wordRecall),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 64),
-                          side: BorderSide(
-                            color: AppTheme.warningColor.withOpacity(0.5),
-                            width: 2,
-                          ),
-                        ),
-                        icon: const Icon(Icons.lightbulb_outline, size: 24),
-                        label: const Text(
-                          'Used Hint',
-                          style: TextStyle(fontSize: 16),
-                        ),
-                      )
-                    : ElevatedButton.icon(
-                        onPressed: () => _markKnown(wordRecall),
-                        style: ElevatedButton.styleFrom(
-                          minimumSize: const Size(0, 64),
-                          backgroundColor: AppTheme.successColor,
-                          foregroundColor: Colors.black,
-                        ),
-                        icon: const Icon(Icons.check, size: 24),
-                        label: const Text(
-                          'I Know',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+        // Action buttons - clean bottom bar
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: AppTheme.backgroundColor,
+            border: Border(
+              top: BorderSide(color: const Color(0xFF2A2A38), width: 1),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                // Forgot button
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _markUnknown(wordRecall),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 56),
+                      side: BorderSide(
+                        color: AppTheme.errorColor.withOpacity(0.3),
+                        width: 1.5,
                       ),
-              ),
-            ],
+                      foregroundColor: AppTheme.errorColor,
+                    ),
+                    child: const Text('Forgot'),
+                  ),
+                ),
+
+                const SizedBox(width: 12),
+
+                // Hint or Know button
+                Expanded(
+                  flex: 2,
+                  child: hasUsedHint
+                      ? OutlinedButton(
+                          onPressed: () => _markPartial(wordRecall),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 56),
+                            side: BorderSide(
+                              color: AppTheme.warningColor.withOpacity(0.3),
+                              width: 1.5,
+                            ),
+                            foregroundColor: AppTheme.warningColor,
+                          ),
+                          child: const Text('Used Hint'),
+                        )
+                      : ElevatedButton(
+                          onPressed: () => _markKnown(wordRecall),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 56),
+                            backgroundColor: AppTheme.primaryColor,
+                            foregroundColor: Colors.black,
+                          ),
+                          child: const Text(
+                            'I Know',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -399,109 +414,142 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   }
 
   Widget _buildHintButtons(Word word, bool hasAI) {
-    final availableHints = [
-      if (hasAI && !_usedHints.contains(HintType.aiExample))
-        _HintButton(
-          icon: Icons.auto_awesome,
+    final availableHints = <Widget>[];
+
+    if (hasAI && !_shownHints.contains(HintType.aiExample)) {
+      availableHints.add(
+        _MinimalHintButton(
           label: 'Example',
-          color: Theme.of(context).colorScheme.primary,
+          icon: Icons.auto_awesome_outlined,
           onPressed: _loadingHint
               ? null
               : () => _showHint(HintType.aiExample, word),
         ),
-      if (hasAI && !_usedHints.contains(HintType.aiExplanation))
-        _HintButton(
-          icon: Icons.info_outline,
+      );
+    }
+
+    if (hasAI && !_shownHints.contains(HintType.aiExplanation)) {
+      availableHints.add(
+        _MinimalHintButton(
           label: 'Explain',
-          color: AppTheme.warningColor,
+          icon: Icons.info_outlined,
           onPressed: _loadingHint
               ? null
               : () => _showHint(HintType.aiExplanation, word),
         ),
-      if (!_usedHints.contains(HintType.firstLetter))
-        _HintButton(
-          icon: Icons.text_fields,
+      );
+    }
+
+    if (!_shownHints.contains(HintType.firstLetter)) {
+      availableHints.add(
+        _MinimalHintButton(
           label: 'First Letter',
-          color: Theme.of(context).colorScheme.secondary,
+          icon: Icons.text_fields_outlined,
           onPressed: () => _showHint(HintType.firstLetter, word),
         ),
-      if (!_usedHints.contains(HintType.fullAnswer))
-        _HintButton(
-          icon: Icons.remove_red_eye_outlined,
+      );
+    }
+
+    if (!_shownHints.contains(HintType.fullAnswer)) {
+      availableHints.add(
+        _MinimalHintButton(
           label: 'Show Answer',
-          color: AppTheme.errorColor,
+          icon: Icons.remove_red_eye_outlined,
           onPressed: () => _showHint(HintType.fullAnswer, word),
         ),
-    ];
+      );
+    }
 
-    if (availableHints.isEmpty) return const SizedBox.shrink();
+    if (availableHints.isEmpty && !_loadingHint) return const SizedBox.shrink();
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Need a hint?',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Wrap(spacing: 12, runSpacing: 12, children: availableHints),
+        if (_loadingHint)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Generating hint...',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            alignment: WrapAlignment.center,
+            children: availableHints,
+          ),
       ],
     );
   }
 
-  Widget _buildActiveHints(Word word) {
+  Widget _buildAllHints(Word word) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_usedHints.contains(HintType.aiExample) && _aiExample != null)
-          _HintCard(
-            icon: Icons.auto_awesome,
-            title: 'Example Sentence',
-            content: _aiExample!,
-            color: Theme.of(context).colorScheme.primary,
-            onTap: () => TtsService.speak(_aiExample!, word.sourceLang),
+        // AI Example
+        if (_shownHints.contains(HintType.aiExample) &&
+            _hintContents.containsKey(HintType.aiExample))
+          _MinimalHintCard(
+            label: 'Example',
+            content: _hintContents[HintType.aiExample]!,
+            onTap: () => TtsService.speak(
+              _hintContents[HintType.aiExample]!,
+              word.sourceLang,
+            ),
           ),
 
-        if (_usedHints.contains(HintType.aiExplanation) &&
-            _aiExplanation != null) ...[
+        // AI Explanation
+        if (_shownHints.contains(HintType.aiExplanation) &&
+            _hintContents.containsKey(HintType.aiExplanation)) ...[
           const SizedBox(height: 12),
-          _HintCard(
-            icon: Icons.info_outline,
-            title: 'Meaning',
-            content: _aiExplanation!,
-            color: AppTheme.warningColor,
-            onTap: () => TtsService.speak(_aiExplanation!, word.targetLang),
+          _MinimalHintCard(
+            label: 'Meaning',
+            content: _hintContents[HintType.aiExplanation]!,
+            onTap: () => TtsService.speak(
+              _hintContents[HintType.aiExplanation]!,
+              word.targetLang,
+            ),
           ),
         ],
 
-        if (_usedHints.contains(HintType.firstLetter)) ...[
+        // First Letter
+        if (_shownHints.contains(HintType.firstLetter) &&
+            _hintContents.containsKey(HintType.firstLetter)) ...[
           const SizedBox(height: 12),
-          _HintCard(
-            icon: Icons.text_fields,
-            title: 'First Letter',
-            content: word.translation[0].toUpperCase(),
-            color: Theme.of(context).colorScheme.secondary,
+          _MinimalHintCard(
+            label: 'First Letter',
+            content: _hintContents[HintType.firstLetter]!,
             isLarge: true,
           ),
         ],
 
-        if (_usedHints.contains(HintType.fullAnswer)) ...[
+        // Full Answer
+        if (_shownHints.contains(HintType.fullAnswer) &&
+            _hintContents.containsKey(HintType.fullAnswer)) ...[
           const SizedBox(height: 12),
-          _HintCard(
-            icon: Icons.check_circle,
-            title: 'Answer',
-            content: word.translation,
-            color: AppTheme.successColor,
-            onTap: () => TtsService.speak(word.translation, word.targetLang),
-            isLarge: true,
+          _MinimalHintCard(
+            label: 'Answer',
+            content: _hintContents[HintType.fullAnswer]!,
+            isAnswer: true,
+            onTap: () => TtsService.speak(
+              _hintContents[HintType.fullAnswer]!,
+              word.targetLang,
+            ),
           ),
-        ],
-
-        if (_loadingHint) ...[
-          const SizedBox(height: 12),
-          const Center(child: CircularProgressIndicator()),
         ],
       ],
     );
@@ -510,38 +558,32 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   Widget _buildSessionComplete() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.all(40.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: AppTheme.successColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.celebration_outlined,
-                size: 80,
-                color: AppTheme.successColor,
-              ),
+            Icon(
+              Icons.check_circle_outline,
+              size: 80,
+              color: AppTheme.successColor.withOpacity(0.5),
             ),
             const SizedBox(height: 32),
             Text(
-              'Session Complete!',
+              'Session Complete',
               style: Theme.of(context).textTheme.displaySmall,
             ),
             const SizedBox(height: 12),
             Text(
               'Reviewed ${_reviewedIds.length} ${_reviewedIds.length == 1 ? 'word' : 'words'}',
-              style: Theme.of(context).textTheme.bodyLarge,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 40),
-            ElevatedButton.icon(
+            ElevatedButton(
               onPressed: _completeSession,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 64)),
-              icon: const Icon(Icons.check, size: 24),
-              label: const Text('Done', style: TextStyle(fontSize: 18)),
+              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 56)),
+              child: const Text('Done'),
             ),
           ],
         ),
@@ -552,34 +594,29 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   Widget _buildNoWords() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.all(40.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: AppTheme.successColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.check_circle_outline,
-                size: 80,
-                color: AppTheme.successColor,
-              ),
+            Icon(
+              Icons.check_circle_outline,
+              size: 80,
+              color: AppTheme.successColor.withOpacity(0.5),
             ),
             const SizedBox(height: 32),
             Text(
-              'All caught up!',
+              'All Caught Up',
               style: Theme.of(context).textTheme.displaySmall,
             ),
             const SizedBox(height: 12),
             Text(
-              'No words to review',
-              style: Theme.of(context).textTheme.bodyLarge,
+              'No words to review right now',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 40),
-            ElevatedButton.icon(
+            ElevatedButton(
               onPressed: () {
                 Navigator.push(
                   context,
@@ -588,12 +625,8 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                   ),
                 );
               },
-              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 64)),
-              icon: const Icon(Icons.library_books, size: 24),
-              label: const Text(
-                'View All Words',
-                style: TextStyle(fontSize: 18),
-              ),
+              style: ElevatedButton.styleFrom(minimumSize: const Size(200, 56)),
+              child: const Text('View Library'),
             ),
           ],
         ),
@@ -602,99 +635,101 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   }
 }
 
-class _HintButton extends StatelessWidget {
-  final IconData icon;
+class _MinimalHintButton extends StatelessWidget {
   final String label;
-  final Color color;
+  final IconData icon;
   final VoidCallback? onPressed;
 
-  const _HintButton({
-    required this.icon,
+  const _MinimalHintButton({
     required this.label,
-    required this.color,
+    required this.icon,
     this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton.icon(
+    return TextButton.icon(
       onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        side: BorderSide(color: color.withOpacity(0.5), width: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        foregroundColor: AppTheme.textSecondary,
       ),
-      icon: Icon(icon, size: 20, color: color),
+      icon: Icon(icon, size: 18),
       label: Text(
         label,
-        style: TextStyle(color: color, fontWeight: FontWeight.w600),
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
     );
   }
 }
 
-class _HintCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
+class _MinimalHintCard extends StatelessWidget {
+  final String label;
   final String content;
-  final Color color;
   final VoidCallback? onTap;
   final bool isLarge;
+  final bool isAnswer;
 
-  const _HintCard({
-    required this.icon,
-    required this.title,
+  const _MinimalHintCard({
+    required this.label,
     required this.content,
-    required this.color,
     this.onTap,
     this.isLarge = false,
+    this.isAnswer = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.3), width: 2),
+          color: AppTheme.backgroundColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isAnswer
+                ? AppTheme.successColor.withOpacity(0.2)
+                : const Color(0xFF2A2A38),
+            width: 1.5,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(icon, color: color, size: 20),
-                const SizedBox(width: 8),
                 Text(
-                  title,
+                  label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: color,
-                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textTertiary,
+                    fontWeight: FontWeight.w600,
                     letterSpacing: 0.5,
                   ),
                 ),
                 const Spacer(),
                 if (onTap != null)
-                  Icon(Icons.volume_up_outlined, color: color, size: 20),
+                  Icon(
+                    Icons.volume_up_outlined,
+                    size: 16,
+                    color: AppTheme.textTertiary,
+                  ),
               ],
             ),
             const SizedBox(height: 12),
             Text(
               content,
               style: isLarge
-                  ? Theme.of(context).textTheme.displaySmall?.copyWith(
-                      color: color,
+                  ? Theme.of(context).textTheme.displayMedium?.copyWith(
                       fontWeight: FontWeight.w800,
+                      color: isAnswer ? AppTheme.successColor : null,
                     )
                   : Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w600,
-                      height: 1.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.6,
                     ),
+              textAlign: isLarge ? TextAlign.center : TextAlign.left,
             ),
           ],
         ),

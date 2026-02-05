@@ -5,6 +5,7 @@ class ApiKeyStorage {
   static const _apiKeyKey = 'deepl_api_key';
   static const _geminiApiKeyKey = 'gemini_api_key';
   static const _huggingfaceApiKeyKey = 'huggingface_api_key';
+  static const _huggingfaceModelKey = 'huggingface_model';
 
   // DeepL API Key methods
   Future<void> saveApiKey(String apiKey) async {
@@ -58,5 +59,18 @@ class ApiKeyStorage {
   Future<bool> hasHuggingFaceApiKey() async {
     final key = await getHuggingFaceApiKey();
     return key != null && key.isNotEmpty;
+  }
+
+  // HuggingFace Model preference methods
+  Future<void> saveHuggingFaceModel(String modelId) async {
+    await _storage.write(key: _huggingfaceModelKey, value: modelId);
+  }
+
+  Future<String?> getHuggingFaceModel() async {
+    return await _storage.read(key: _huggingfaceModelKey);
+  }
+
+  Future<void> deleteHuggingFaceModel() async {
+    await _storage.delete(key: _huggingfaceModelKey);
   }
 }
