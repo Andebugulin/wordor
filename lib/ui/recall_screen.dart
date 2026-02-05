@@ -173,8 +173,38 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     final dueWordsAsync = ref.watch(dueWordsProvider);
     final hasAI = ref.watch(aiHintServiceProvider) != null;
 
+    final deeplKeyAsync = ref.watch(apiKeyProvider);
+    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
+    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
+
+    final hasDeepLKey = deeplKeyAsync.value != null;
+    final hasAIKey = (hfKeyAsync.value != null || geminiKeyAsync.value != null);
+
     return Scaffold(
-      backgroundColor: AppTheme.surfaceColor,
+      backgroundColor: AppTheme.backgroundColor,
+      appBar: AppBar(
+        titleSpacing: 24,
+        title: Row(
+          children: [
+            const Text('Recall'),
+            const SizedBox(width: 12),
+            // Key status indicators
+            _KeyStatusIndicator(
+              icon: Icons.key,
+              isActive: hasDeepLKey,
+              tooltip: hasDeepLKey
+                  ? 'DeepL key configured'
+                  : 'DeepL key missing',
+            ),
+            const SizedBox(width: 8),
+            _KeyStatusIndicator(
+              icon: Icons.auto_awesome,
+              isActive: hasAIKey,
+              tooltip: hasAIKey ? 'AI key configured' : 'AI key missing',
+            ),
+          ],
+        ),
+      ),
       body: SafeArea(
         child: dueWordsAsync.when(
           data: (words) {
@@ -236,6 +266,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
         // Minimalistic progress header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+          color: AppTheme.backgroundColor,
           child: Column(
             children: [
               Row(
@@ -275,69 +306,73 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
 
         // Main word display - centered and prominent
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const SizedBox(height: 40),
+          child: Container(
+            color: AppTheme.backgroundColor,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 40),
 
-                // The word itself - hero element with smart sizing
-                Column(
-                  children: [
-                    Text(
-                      word.source,
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                        fontSize: _calculateWordFontSize(word.source),
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -2,
-                        height: 1.1,
+                  // The word itself - hero element with smart sizing
+                  Column(
+                    children: [
+                      Text(
+                        word.source,
+                        style: Theme.of(context).textTheme.displayLarge
+                            ?.copyWith(
+                              fontSize: _calculateWordFontSize(word.source),
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -2,
+                              height: 1.1,
+                            ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
+                      const SizedBox(height: 20),
 
-                    // Pronunciation button
-                    IconButton.outlined(
-                      onPressed: () =>
-                          TtsService.speak(word.source, word.sourceLang),
-                      icon: const Icon(Icons.volume_up_outlined, size: 24),
-                      style: IconButton.styleFrom(
-                        side: const BorderSide(
-                          color: Color(0xFF2A2A38),
-                          width: 1.5,
+                      // Pronunciation button
+                      IconButton.outlined(
+                        onPressed: () =>
+                            TtsService.speak(word.source, word.sourceLang),
+                        icon: const Icon(Icons.volume_up_outlined, size: 24),
+                        style: IconButton.styleFrom(
+                          side: const BorderSide(
+                            color: Color(0xFF2A2A38),
+                            width: 1.5,
+                          ),
+                          padding: const EdgeInsets.all(16),
                         ),
-                        padding: const EdgeInsets.all(16),
                       ),
-                    ),
 
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
-                    // Language indicator
-                    Text(
-                      '${word.sourceLang} → ${word.targetLang}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textTertiary,
-                        letterSpacing: 1,
-                        fontWeight: FontWeight.w600,
+                      // Language indicator
+                      Text(
+                        '${word.sourceLang} → ${word.targetLang}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppTheme.textTertiary,
+                          letterSpacing: 1,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 48),
+
+                  // Active hints display - ALL hints shown together
+                  if (_shownHints.isNotEmpty) ...[
+                    _buildAllHints(word),
+                    const SizedBox(height: 32),
                   ],
-                ),
 
-                const SizedBox(height: 48),
+                  // Hint buttons - always visible unless all used
+                  _buildHintButtons(word, hasAI),
 
-                // Active hints display - ALL hints shown together
-                if (_shownHints.isNotEmpty) ...[
-                  _buildAllHints(word),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 40),
                 ],
-
-                // Hint buttons - always visible unless all used
-                _buildHintButtons(word, hasAI),
-
-                const SizedBox(height: 40),
-              ],
+              ),
             ),
           ),
         ),
@@ -635,6 +670,39 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   }
 }
 
+class _KeyStatusIndicator extends StatelessWidget {
+  final IconData icon;
+  final bool isActive;
+  final String tooltip;
+
+  const _KeyStatusIndicator({
+    required this.icon,
+    required this.isActive,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: isActive
+              ? const Color(0xFF4ADEAA).withOpacity(0.15)
+              : const Color(0xFFFF6B7A).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(
+          icon,
+          size: 14,
+          color: isActive ? const Color(0xFF4ADEAA) : const Color(0xFFFF6B7A),
+        ),
+      ),
+    );
+  }
+}
+
 class _MinimalHintButton extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -686,7 +754,7 @@ class _MinimalHintCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: AppTheme.backgroundColor,
+          color: AppTheme.surfaceColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isAnswer

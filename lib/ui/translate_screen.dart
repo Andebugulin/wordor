@@ -12,13 +12,19 @@ import '../services/tts_service.dart';
 import 'language_picker.dart';
 
 class TranslateScreen extends ConsumerStatefulWidget {
-  const TranslateScreen({super.key});
+  final bool keepAlive;
+
+  const TranslateScreen({super.key, this.keepAlive = false});
 
   @override
   ConsumerState<TranslateScreen> createState() => _TranslateScreenState();
 }
 
-class _TranslateScreenState extends ConsumerState<TranslateScreen> {
+class _TranslateScreenState extends ConsumerState<TranslateScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => widget.keepAlive;
+
   final _controller = TextEditingController();
   final _speech = stt.SpeechToText();
 
@@ -341,37 +347,59 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+
+    final deeplKeyAsync = ref.watch(apiKeyProvider);
+    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
+    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
+
+    final hasDeepLKey = deeplKeyAsync.value != null;
+    final hasAIKey = (hfKeyAsync.value != null || geminiKeyAsync.value != null);
+
     return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 24,
+        title: Row(
+          children: [
+            const Text('Translate'),
+            const SizedBox(width: 12),
+            // Key status indicators
+            _KeyStatusIndicator(
+              icon: Icons.key,
+              isActive: hasDeepLKey,
+              tooltip: hasDeepLKey
+                  ? 'DeepL key configured'
+                  : 'DeepL key missing',
+            ),
+            const SizedBox(width: 8),
+            _KeyStatusIndicator(
+              icon: Icons.auto_awesome,
+              isActive: hasAIKey,
+              tooltip: hasAIKey ? 'AI key configured' : 'AI key missing',
+            ),
+          ],
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              onPressed: _showHistory,
+              icon: const Icon(Icons.history),
+            ),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Translate',
-                      style: Theme.of(context).textTheme.displaySmall,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: _showHistory,
-                    icon: const Icon(Icons.history),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.surface,
-                    ),
-                  ),
-                ],
-              ),
-            ),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 24.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    const SizedBox(height: 24),
                     Row(
                       children: [
                         Expanded(
@@ -619,6 +647,39 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KeyStatusIndicator extends StatelessWidget {
+  final IconData icon;
+  final bool isActive;
+  final String tooltip;
+
+  const _KeyStatusIndicator({
+    required this.icon,
+    required this.isActive,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: isActive
+              ? const Color(0xFF4ADEAA).withOpacity(0.15)
+              : const Color(0xFFFF6B7A).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(
+          icon,
+          size: 14,
+          color: isActive ? const Color(0xFF4ADEAA) : const Color(0xFFFF6B7A),
         ),
       ),
     );

@@ -16,22 +16,19 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   int _currentIndex = 0;
-
-  final _screens = [
-    const TranslateScreen(),
-    const RecallScreen(),
-    const SettingsScreen(),
-  ];
+  late PageController _pageController;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _currentIndex);
     WidgetsBinding.instance.addObserver(this);
     _checkDueWordsOnLaunch();
   }
 
   @override
   void dispose() {
+    _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -63,12 +60,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
+  void _onPageChanged(int index) {
+    setState(() => _currentIndex = index);
+  }
+
+  void _onNavTap(int index) {
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dueCountAsync = ref.watch(dueWordCountProvider);
 
     return Scaffold(
-      body: _screens[_currentIndex],
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: _onPageChanged,
+        children: const [
+          TranslateScreen(keepAlive: true),
+          RecallScreen(),
+          SettingsScreen(),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           border: Border(
@@ -80,9 +97,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
         child: NavigationBar(
           selectedIndex: _currentIndex,
-          onDestinationSelected: (index) {
-            setState(() => _currentIndex = index);
-          },
+          onDestinationSelected: _onNavTap,
           destinations: [
             const NavigationDestination(
               icon: Icon(Icons.translate),

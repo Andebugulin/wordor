@@ -17,11 +17,47 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   bool _isValidating = false;
   String? _errorMessage;
 
+  // Validation states
+  bool? _deeplValid;
+  bool? _hfValid;
+
   @override
   void dispose() {
     _deeplController.dispose();
     _huggingfaceController.dispose();
     super.dispose();
+  }
+
+  Future<void> _validateDeepLKey() async {
+    final key = _deeplController.text.trim();
+    if (key.isEmpty) {
+      setState(() => _deeplValid = null);
+      return;
+    }
+
+    try {
+      final service = DeepLService(key);
+      final isValid = await service.validateApiKey();
+      setState(() => _deeplValid = isValid);
+    } catch (e) {
+      setState(() => _deeplValid = false);
+    }
+  }
+
+  Future<void> _validateHFKey() async {
+    final key = _huggingfaceController.text.trim();
+    if (key.isEmpty) {
+      setState(() => _hfValid = null);
+      return;
+    }
+
+    try {
+      final service = AIHintService(key, AIProvider.huggingface);
+      final validation = await service.validateApiKey();
+      setState(() => _hfValid = validation['valid']);
+    } catch (e) {
+      setState(() => _hfValid = false);
+    }
   }
 
   Future<void> _saveApiKeys() async {
@@ -32,36 +68,50 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       return;
     }
 
+    if (_deeplValid == false) {
+      setState(() => _errorMessage = 'Invalid DeepL API key');
+      return;
+    }
+
     setState(() {
       _isValidating = true;
       _errorMessage = null;
     });
 
     try {
-      // Validate DeepL key
-      final deeplService = DeepLService(deeplKey);
-      final isDeeplValid = await deeplService.validateApiKey();
+      // Validate DeepL key if not already validated
+      if (_deeplValid == null) {
+        final deeplService = DeepLService(deeplKey);
+        final isDeeplValid = await deeplService.validateApiKey();
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      if (!isDeeplValid) {
-        setState(() {
-          _errorMessage = 'Invalid DeepL API key';
-          _isValidating = false;
-        });
-        return;
+        if (!isDeeplValid) {
+          setState(() {
+            _errorMessage = 'Invalid DeepL API key';
+            _isValidating = false;
+          });
+          return;
+        }
       }
 
       final storage = ref.read(apiKeyStorageProvider);
       await storage.saveApiKey(deeplKey);
 
-      // Optionally save HuggingFace key if provided
+      // Optionally save HuggingFace key if provided and valid
       final huggingfaceKey = _huggingfaceController.text.trim();
       if (huggingfaceKey.isNotEmpty) {
-        final aiService = AIHintService(huggingfaceKey, AIProvider.huggingface);
-        final validation = await aiService.validateApiKey();
-
-        if (validation['valid']) {
+        // Only save if validated or validate now
+        if (_hfValid == null) {
+          final aiService = AIHintService(
+            huggingfaceKey,
+            AIProvider.huggingface,
+          );
+          final validation = await aiService.validateApiKey();
+          if (validation['valid']) {
+            await storage.saveHuggingFaceApiKey(huggingfaceKey);
+          }
+        } else if (_hfValid == true) {
           await storage.saveHuggingFaceApiKey(huggingfaceKey);
         }
       }
@@ -114,16 +164,50 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _deeplController,
-                  decoration: InputDecoration(
-                    hintText: 'Enter DeepL API key',
-                    errorText: _errorMessage,
-                    contentPadding: const EdgeInsets.all(20),
-                  ),
-                  obscureText: true,
-                  onSubmitted: (_) => _saveApiKeys(),
+                Stack(
+                  alignment: Alignment.centerRight,
+                  children: [
+                    TextField(
+                      controller: _deeplController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter DeepL API key',
+                        errorText: _errorMessage,
+                        contentPadding: const EdgeInsets.all(20),
+                        suffixIcon: _deeplValid == null
+                            ? null
+                            : Padding(
+                                padding: const EdgeInsets.only(right: 12),
+                                child: Icon(
+                                  _deeplValid!
+                                      ? Icons.check_circle
+                                      : Icons.error,
+                                  color: _deeplValid!
+                                      ? const Color(0xFF4ADEAA)
+                                      : const Color(0xFFFF6B7A),
+                                  size: 24,
+                                ),
+                              ),
+                      ),
+                      obscureText: true,
+                      onChanged: (value) {
+                        setState(() {
+                          _deeplValid = null;
+                          _errorMessage = null;
+                        });
+                      },
+                      onSubmitted: (_) => _saveApiKeys(),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                if (_deeplController.text.isNotEmpty && _deeplValid == null)
+                  OutlinedButton(
+                    onPressed: _validateDeepLKey,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
+                    child: const Text('Validate DeepL Key'),
+                  ),
                 const SizedBox(height: 32),
 
                 // HuggingFace API Key (Optional)
@@ -167,13 +251,37 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _huggingfaceController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Enter HuggingFace API key (optional)',
-                    contentPadding: EdgeInsets.all(20),
+                    contentPadding: const EdgeInsets.all(20),
+                    suffixIcon: _hfValid == null
+                        ? null
+                        : Padding(
+                            padding: const EdgeInsets.only(right: 12),
+                            child: Icon(
+                              _hfValid! ? Icons.check_circle : Icons.error,
+                              color: _hfValid!
+                                  ? const Color(0xFF4ADEAA)
+                                  : const Color(0xFFFF6B7A),
+                              size: 24,
+                            ),
+                          ),
                   ),
                   obscureText: true,
+                  onChanged: (value) {
+                    setState(() => _hfValid = null);
+                  },
                   onSubmitted: (_) => _saveApiKeys(),
                 ),
+                const SizedBox(height: 12),
+                if (_huggingfaceController.text.isNotEmpty && _hfValid == null)
+                  OutlinedButton(
+                    onPressed: _validateHFKey,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
+                    child: const Text('Validate HuggingFace Key'),
+                  ),
                 const SizedBox(height: 32),
 
                 SizedBox(

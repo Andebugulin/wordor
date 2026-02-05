@@ -27,8 +27,7 @@ class AIHintService {
   static const String geminiBaseUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-  static const String defaultHFModel =
-      'Qwen/Qwen2.5-7B-Instruct:featherless-ai';
+  static const String defaultHFModel = 'moonshotai/Kimi-K2-Instruct:novita';
 
   static const List<HFModel> recommendedModels = [
     HFModel(
@@ -44,33 +43,15 @@ class AIHintService {
       recommended: false,
     ),
     HFModel(
-      name: 'Meta LLaMA 3.1 8B',
-      id: 'meta-llama/Llama-3.1-8B-Instruct:novitaistralaiai/Mistral-7B-Instruct-v0.2:featherless-',
-      description: '',
-      recommended: false,
-    ),
-    HFModel(
       name: 'DeepSeek R1',
       id: 'deepseek-ai/DeepSeek-R1:novita',
-      description: '',
+      description: 'very slow, but sometimes good',
       recommended: false,
     ),
     HFModel(
-      name: 'OpenAI GPT-OSS 120B',
-      id: 'openai/gpt-oss-120b:groq',
-      description: '',
-      recommended: false,
-    ),
-    HFModel(
-      name: 'Qwen QwQ-32B',
-      id: 'Qwen/QwQ-32B:groq',
-      description: '',
-      recommended: false,
-    ),
-    HFModel(
-      name: 'Moonshotai Kimi-K2-Instruct',
+      name: 'Moonshotai Kimi-K2',
       id: 'moonshotai/Kimi-K2-Instruct:novita',
-      description: '',
+      description: 'very good',
       recommended: true,
     ),
     HFModel(

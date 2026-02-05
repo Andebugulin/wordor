@@ -83,22 +83,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final deeplKeyAsync = ref.watch(apiKeyProvider);
+    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
+    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
+
+    final hasDeepLKey = deeplKeyAsync.value != null;
+    final hasHFKey = hfKeyAsync.value != null;
+    final hasGeminiKey = geminiKeyAsync.value != null;
+    final hasAIKey = (hasHFKey || hasGeminiKey);
+
     return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 24,
+        title: Row(
+          children: [
+            const Text('Settings'),
+            const SizedBox(width: 12),
+            // Key status indicators
+            _KeyStatusIndicator(
+              icon: Icons.key,
+              isActive: hasDeepLKey,
+              tooltip: hasDeepLKey
+                  ? 'DeepL key configured'
+                  : 'DeepL key missing',
+            ),
+            const SizedBox(width: 8),
+            _KeyStatusIndicator(
+              icon: Icons.auto_awesome,
+              isActive: hasAIKey,
+              tooltip: hasAIKey ? 'AI key configured' : 'AI key missing',
+            ),
+          ],
+        ),
+      ),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Text(
-                'Settings',
-                style: Theme.of(context).textTheme.displaySmall,
-              ),
-            ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
+                  const SizedBox(height: 16),
                   _SettingsTile(
                     icon: Icons.library_books_outlined,
                     title: 'Saved Words',
@@ -112,11 +138,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // DeepL API Key
-                  _SettingsTile(
+                  // DeepL API Key with status indicator
+                  _SettingsTileWithStatus(
                     icon: Icons.key_outlined,
                     title: 'DeepL API Key',
-                    subtitle: 'Required for translation',
+                    subtitle: hasDeepLKey
+                        ? 'Configured'
+                        : 'Required for translation',
+                    hasKey: hasDeepLKey,
                     onTap: () => _showDeepLApiKeyDialog(context, ref),
                   ),
                   const SizedBox(height: 16),
@@ -174,13 +203,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  // HuggingFace API Key
-                  _SettingsTile(
+                  // HuggingFace API Key with status indicator
+                  _SettingsTileWithStatus(
                     icon: Icons.auto_awesome_outlined,
                     title: 'HuggingFace API Key',
                     subtitle: _selectedAIProvider == AIProvider.huggingface
-                        ? 'Get free key at huggingface.co'
+                        ? (hasHFKey
+                              ? 'Configured'
+                              : 'Get free key at huggingface.co')
                         : 'Not active',
+                    hasKey: hasHFKey,
+                    isActive: _selectedAIProvider == AIProvider.huggingface,
                     onTap: () => _showHuggingFaceApiKeyDialog(context, ref),
                   ),
 
@@ -197,13 +230,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
                   const SizedBox(height: 8),
 
-                  // Gemini API Key
-                  _SettingsTile(
+                  // Gemini API Key with status indicator
+                  _SettingsTileWithStatus(
                     icon: Icons.auto_awesome_outlined,
                     title: 'Gemini API Key',
                     subtitle: _selectedAIProvider == AIProvider.gemini
-                        ? 'Get free key at ai.google.dev'
+                        ? (hasGeminiKey
+                              ? 'Configured'
+                              : 'Get free key at ai.google.dev')
                         : 'Not active',
+                    hasKey: hasGeminiKey,
+                    isActive: _selectedAIProvider == AIProvider.gemini,
                     onTap: () => _showGeminiApiKeyDialog(context, ref),
                   ),
 
@@ -380,10 +417,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   String _getModelName(String? modelId) {
     if (modelId == null) {
-      return 'Default (Mistral 7B)';
+      return 'Default (Moonshotai Kimi-K2)';
     }
 
-    // Check if it's one of the recommended models
     final model = AIHintService.recommendedModels.firstWhere(
       (m) => m.id == modelId,
       orElse: () => const HFModel(
@@ -394,7 +430,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
 
     if (model.id == '__custom__') {
-      // Custom model - show truncated version
       if (modelId.length > 30) {
         return '${modelId.substring(0, 27)}...';
       }
@@ -539,18 +574,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
   ) async {
     final controller = TextEditingController();
+    final storage = ref.read(apiKeyStorageProvider);
+    final existingKey = await storage.getApiKey();
+
+    // Show masked version of existing key if it exists
+    if (existingKey != null && existingKey.isNotEmpty) {
+      controller.text = '•' * 20;
+    }
+
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('DeepL API Key'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Paste your DeepL API key',
-          ),
-          obscureText: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (existingKey != null && existingKey.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'API key is configured',
+                      style: TextStyle(color: Colors.green, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Paste your DeepL API key',
+              ),
+              obscureText: true,
+            ),
+          ],
         ),
         actions: [
+          if (existingKey != null)
+            TextButton(
+              onPressed: () async {
+                await storage.deleteApiKey();
+                ref.invalidate(apiKeyProvider);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('DeepL API key removed')),
+                  );
+                }
+              },
+              child: const Text('Remove'),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
@@ -563,8 +639,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    if (result != null && result.isNotEmpty) {
-      final storage = ref.read(apiKeyStorageProvider);
+    if (result != null && result.isNotEmpty && result != '•' * 20) {
       await storage.saveApiKey(result);
       ref.invalidate(apiKeyProvider);
       if (context.mounted) {
@@ -580,6 +655,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
   ) async {
     final controller = TextEditingController();
+    final storage = ref.read(apiKeyStorageProvider);
+    final existingKey = await storage.getHuggingFaceApiKey();
+
+    if (existingKey != null && existingKey.isNotEmpty) {
+      controller.text = '•' * 20;
+    }
+
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -600,6 +682,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (existingKey != null && existingKey.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'API key is configured',
+                      style: TextStyle(color: Colors.green, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
             const Text('Free at huggingface.co/settings/tokens'),
             const SizedBox(height: 16),
             TextField(
@@ -614,7 +710,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () async {
-              final storage = ref.read(apiKeyStorageProvider);
               await storage.deleteHuggingFaceApiKey();
               ref.invalidate(huggingfaceApiKeyProvider);
               if (context.mounted) {
@@ -638,7 +733,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    if (result != null && result.isNotEmpty) {
+    if (result != null && result.isNotEmpty && result != '•' * 20) {
       final storage = ref.read(apiKeyStorageProvider);
 
       if (context.mounted) {
@@ -692,6 +787,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
   ) async {
     final controller = TextEditingController();
+    final storage = ref.read(apiKeyStorageProvider);
+    final existingKey = await storage.getGeminiApiKey();
+
+    if (existingKey != null && existingKey.isNotEmpty) {
+      controller.text = '•' * 20;
+    }
+
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -700,6 +802,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (existingKey != null && existingKey.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'API key is configured',
+                      style: TextStyle(color: Colors.green, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
             const Text('Free at ai.google.dev'),
             const SizedBox(height: 16),
             TextField(
@@ -714,7 +830,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () async {
-              final storage = ref.read(apiKeyStorageProvider);
               await storage.deleteGeminiApiKey();
               ref.invalidate(geminiApiKeyProvider);
               if (context.mounted) {
@@ -738,7 +853,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    if (result != null && result.isNotEmpty) {
+    if (result != null && result.isNotEmpty && result != '•' * 20) {
       final storage = ref.read(apiKeyStorageProvider);
       await storage.saveGeminiApiKey(result);
       ref.invalidate(geminiApiKeyProvider);
@@ -930,6 +1045,145 @@ class _SettingsTile extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsTileWithStatus extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool hasKey;
+  final bool isActive;
+
+  const _SettingsTileWithStatus({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    required this.hasKey,
+    this.isActive = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = hasKey && isActive
+        ? const Color(0xFF4ADEAA)
+        : const Color(0xFFFF6B7A);
+
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      icon,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 24,
+                    ),
+                  ),
+                  if (isActive)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.surface,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: hasKey && isActive
+                            ? statusColor
+                            : Theme.of(context).textTheme.bodyMedium?.color,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KeyStatusIndicator extends StatelessWidget {
+  final IconData icon;
+  final bool isActive;
+  final String tooltip;
+
+  const _KeyStatusIndicator({
+    required this.icon,
+    required this.isActive,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: isActive
+              ? const Color(0xFF4ADEAA).withOpacity(0.15)
+              : const Color(0xFFFF6B7A).withOpacity(0.15),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(
+          icon,
+          size: 14,
+          color: isActive ? const Color(0xFF4ADEAA) : const Color(0xFFFF6B7A),
         ),
       ),
     );
