@@ -34,13 +34,43 @@ class AIHintService {
     HFModel(
       name: 'Qwen 2.5 7B',
       id: 'Qwen/Qwen2.5-7B-Instruct:featherless-ai',
-      description: 'Excellent for multiple languages',
+      description: 'Quite good for popular languages',
       recommended: false,
     ),
     HFModel(
       name: 'Mistral 7B',
       id: 'mistralai/Mistral-7B-Instruct-v0.2:featherless-ai',
-      description: 'Fast and accurate, great for hints',
+      description: 'sometimes good',
+      recommended: false,
+    ),
+    HFModel(
+      name: 'Meta LLaMA 3.1 8B',
+      id: 'meta-llama/Llama-3.1-8B-Instruct:novitaistralaiai/Mistral-7B-Instruct-v0.2:featherless-',
+      description: '',
+      recommended: false,
+    ),
+    HFModel(
+      name: 'DeepSeek R1',
+      id: 'deepseek-ai/DeepSeek-R1:novita',
+      description: '',
+      recommended: false,
+    ),
+    HFModel(
+      name: 'OpenAI GPT-OSS 120B',
+      id: 'openai/gpt-oss-120b:groq',
+      description: '',
+      recommended: false,
+    ),
+    HFModel(
+      name: 'Qwen QwQ-32B',
+      id: 'Qwen/QwQ-32B:groq',
+      description: '',
+      recommended: false,
+    ),
+    HFModel(
+      name: 'Moonshotai Kimi-K2-Instruct',
+      id: 'moonshotai/Kimi-K2-Instruct:novita',
+      description: '',
       recommended: true,
     ),
     HFModel(

@@ -41,7 +41,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
 
   Future<void> _initializeSpeech() async {
     try {
-      // Request microphone permission
       final status = await Permission.microphone.request();
 
       if (status.isGranted) {
@@ -103,7 +102,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
           _controller.text = result.recognizedWords;
         });
 
-        // Auto-translate when user stops speaking
         if (result.finalResult && _controller.text.isNotEmpty) {
           _translate();
         }
@@ -206,7 +204,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
         _error = null;
       });
 
-      // Add to history
       try {
         final db = ref.read(databaseProvider);
         await db.addToHistory(
@@ -262,7 +259,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
       ),
     );
 
-    // Mark in history as saved
     try {
       final historyItems = await db.translationHistory.select()
         ..where(
@@ -406,7 +402,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Text field with voice input button
                     Stack(
                       children: [
                         TextField(
@@ -702,7 +697,7 @@ class _LanguageButton extends StatelessWidget {
   }
 }
 
-// Translation History Screen remains the same as before
+// Translation History Screen with save/unsave functionality
 class TranslationHistoryScreen extends ConsumerStatefulWidget {
   const TranslationHistoryScreen({super.key});
 
@@ -720,6 +715,69 @@ class _TranslationHistoryScreenState
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleSaveWord(TranslationHistoryData item) async {
+    final db = ref.read(databaseProvider);
+
+    if (item.saved) {
+      // Unsave: remove from words database
+      final words =
+          await (db.select(db.words)..where(
+                (w) =>
+                    w.source.equals(item.source) &
+                    w.translation.equals(item.translation),
+              ))
+              .get();
+
+      if (words.isNotEmpty) {
+        await db.deleteWord(words.first.id);
+        await (db.update(db.translationHistory)
+              ..where((t) => t.id.equals(item.id)))
+            .write(TranslationHistoryCompanion(saved: drift.Value(false)));
+
+        ref.invalidate(dueWordCountProvider);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Word removed from recall'),
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } else {
+      // Save: add to words database
+      await db.addWord(
+        WordsCompanion.insert(
+          source: item.source,
+          translation: item.translation,
+          sourceLang: item.sourceLang,
+          targetLang: item.targetLang,
+        ),
+      );
+
+      await (db.update(db.translationHistory)
+            ..where((t) => t.id.equals(item.id)))
+          .write(TranslationHistoryCompanion(saved: drift.Value(true)));
+
+      ref.invalidate(dueWordCountProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Saved for recall'),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+
+    setState(() {});
   }
 
   @override
@@ -877,45 +935,27 @@ class _TranslationHistoryScreenState
                                     ),
                               ),
                               const Spacer(),
-                              if (item.saved)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.bookmark,
-                                        size: 14,
-                                        color: Theme.of(
+                              // Save/Unsave button
+                              IconButton(
+                                onPressed: () => _toggleSaveWord(item),
+                                icon: Icon(
+                                  item.saved
+                                      ? Icons.bookmark
+                                      : Icons.bookmark_border,
+                                  size: 20,
+                                  color: item.saved
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(
                                           context,
-                                        ).colorScheme.primary,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Saved',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.primary,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
+                                        ).colorScheme.onSurfaceVariant,
                                 ),
-                              const SizedBox(width: 8),
+                                visualDensity: VisualDensity.compact,
+                                tooltip: item.saved
+                                    ? 'Unsave'
+                                    : 'Save for recall',
+                              ),
+                              const SizedBox(width: 4),
+                              // Delete button
                               IconButton(
                                 onPressed: () async {
                                   final confirmed = await showDialog<bool>(

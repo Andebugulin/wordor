@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/deepl_service.dart';
-import '../services/gemini_service.dart';
+import '../services/ai_hint_service.dart';
 import '../providers/app_providers.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
@@ -13,14 +13,14 @@ class SetupScreen extends ConsumerStatefulWidget {
 
 class _SetupScreenState extends ConsumerState<SetupScreen> {
   final _deeplController = TextEditingController();
-  final _geminiController = TextEditingController();
+  final _huggingfaceController = TextEditingController();
   bool _isValidating = false;
   String? _errorMessage;
 
   @override
   void dispose() {
     _deeplController.dispose();
-    _geminiController.dispose();
+    _huggingfaceController.dispose();
     super.dispose();
   }
 
@@ -55,19 +55,19 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
       final storage = ref.read(apiKeyStorageProvider);
       await storage.saveApiKey(deeplKey);
 
-      // Optionally save Gemini key if provided
-      final geminiKey = _geminiController.text.trim();
-      if (geminiKey.isNotEmpty) {
-        final geminiService = GeminiService(geminiKey);
-        final validation = await geminiService.validateApiKey();
+      // Optionally save HuggingFace key if provided
+      final huggingfaceKey = _huggingfaceController.text.trim();
+      if (huggingfaceKey.isNotEmpty) {
+        final aiService = AIHintService(huggingfaceKey, AIProvider.huggingface);
+        final validation = await aiService.validateApiKey();
 
         if (validation['valid']) {
-          await storage.saveGeminiApiKey(geminiKey);
+          await storage.saveHuggingFaceApiKey(huggingfaceKey);
         }
       }
 
       ref.invalidate(apiKeyProvider);
-      ref.invalidate(geminiApiKeyProvider);
+      ref.invalidate(huggingfaceApiKeyProvider);
     } catch (e) {
       setState(() => _errorMessage = 'Connection failed');
     } finally {
@@ -126,11 +126,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ),
                 const SizedBox(height: 32),
 
-                // Gemini API Key (Optional)
+                // HuggingFace API Key (Optional)
                 Row(
                   children: [
                     Text(
-                      'Gemini API Key',
+                      'HuggingFace API Key',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -159,16 +159,16 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'For AI-powered hints (100% free at ai.google.dev)',
+                  'For AI-powered hints (free at huggingface.co/settings/tokens)',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
-                  controller: _geminiController,
+                  controller: _huggingfaceController,
                   decoration: const InputDecoration(
-                    hintText: 'Enter Gemini API key (optional)',
+                    hintText: 'Enter HuggingFace API key (optional)',
                     contentPadding: EdgeInsets.all(20),
                   ),
                   obscureText: true,
@@ -209,7 +209,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       TextButton(
                         onPressed: () {},
                         child: Text(
-                          'Get FREE Gemini API key →',
+                          'Get FREE HuggingFace API key →',
                           style: TextStyle(
                             color: Theme.of(context).colorScheme.primary,
                             fontSize: 14,
