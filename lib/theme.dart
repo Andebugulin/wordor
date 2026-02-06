@@ -1,54 +1,70 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Modern minimal dark palette inspired by Nord and Catppuccin
-  // Primary: Soft blue-purple for focus and interaction
-  static const primaryColor = Color(0xFF7C94FF);
-  static const _primaryDark = Color(0xFF5A75E8);
+  // Theme colors - will be customizable
+  final Color primaryColor;
+  final Color accentColor;
+  final Color backgroundColor;
+  final Color surfaceColor;
+  final Color successColor;
+  final Color warningColor;
+  final Color errorColor;
 
-  // Accent: Complementary purple for highlights
-  static const _accentColor = Color(0xFFA78BFA);
+  // Text colors - derived from theme mode
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color textTertiary;
 
-  // Backgrounds: Deep, rich blacks with subtle variations
-  static const backgroundColor = Color(0xFF0D0D12);
-  static const surfaceColor = Color(0xFF18181F);
-  static const _surfaceElevated = Color(0xFF242430);
+  final bool isDark;
 
-  // Text: High contrast whites with subtle grays
-  static const textPrimary = Color(0xFFF8F8FB);
-  static const textSecondary = Color(0xFFA1A1B0);
-  static const textTertiary = Color(0xFF6E6E80);
+  AppTheme({
+    required this.primaryColor,
+    required this.accentColor,
+    required this.backgroundColor,
+    required this.surfaceColor,
+    required this.successColor,
+    required this.warningColor,
+    required this.errorColor,
+    required this.isDark,
+  }) : textPrimary = isDark ? const Color(0xFFF8F8FB) : const Color(0xFF1A1A1A),
+       textSecondary = isDark
+           ? const Color(0xFFA1A1B0)
+           : const Color(0xFF6B7280),
+       textTertiary = isDark
+           ? const Color(0xFF6E6E80)
+           : const Color(0xFF9CA3AF);
 
-  // Semantic colors
-  static const successColor = Color(0xFF4ADEAA);
-  static const warningColor = Color(0xFFFFB86C);
-  static const errorColor = Color(0xFFFF6B7A);
+  ThemeData get themeData {
+    final primaryDark = Color.lerp(primaryColor, Colors.black, 0.2)!;
+    final surfaceElevated = isDark
+        ? Color.lerp(surfaceColor, Colors.white, 0.05)!
+        : Color.lerp(surfaceColor, Colors.black, 0.02)!;
 
-  static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: isDark ? Brightness.dark : Brightness.light,
       scaffoldBackgroundColor: backgroundColor,
 
-      colorScheme: const ColorScheme.dark(
+      colorScheme: ColorScheme(
+        brightness: isDark ? Brightness.dark : Brightness.light,
         primary: primaryColor,
-        secondary: _accentColor,
+        secondary: accentColor,
         surface: surfaceColor,
         error: errorColor,
-        onPrimary: Color(0xFF000000),
+        onPrimary: isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF),
+        onSecondary: isDark ? const Color(0xFF000000) : const Color(0xFFFFFFFF),
         onSurface: textPrimary,
+        onError: const Color(0xFFFFFFFF),
         onSurfaceVariant: textSecondary,
       ),
 
-      // Card theme - clean elevated surface
       cardTheme: CardThemeData(
         color: surfaceColor,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
 
-      // AppBar - transparent, minimal
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
@@ -58,10 +74,10 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           letterSpacing: -0.8,
         ),
+        iconTheme: IconThemeData(color: textPrimary),
       ),
 
-      // Typography - modern, legible
-      textTheme: const TextTheme(
+      textTheme: TextTheme(
         displayLarge: TextStyle(
           fontSize: 52,
           fontWeight: FontWeight.w800,
@@ -117,7 +133,6 @@ class AppTheme {
         ),
       ),
 
-      // Input fields - clean and focused
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surfaceColor,
@@ -131,37 +146,41 @@ class AppTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Color(0xFF2A2A38), width: 1.5),
+          borderSide: BorderSide(
+            color: isDark ? const Color(0xFF2A2A38) : const Color(0xFFE5E7EB),
+            width: 1.5,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: primaryColor, width: 2),
+          borderSide: BorderSide(color: primaryColor, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: errorColor, width: 1.5),
+          borderSide: BorderSide(color: errorColor, width: 1.5),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: errorColor, width: 2),
+          borderSide: BorderSide(color: errorColor, width: 2),
         ),
-        labelStyle: const TextStyle(
+        labelStyle: TextStyle(
           color: textSecondary,
           fontSize: 15,
           fontWeight: FontWeight.w500,
         ),
-        hintStyle: const TextStyle(
+        hintStyle: TextStyle(
           color: textTertiary,
           fontSize: 15,
           fontWeight: FontWeight.w400,
         ),
       ),
 
-      // Elevated buttons - primary action
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryColor,
-          foregroundColor: const Color(0xFF000000),
+          foregroundColor: isDark
+              ? const Color(0xFF000000)
+              : const Color(0xFFFFFFFF),
           elevation: 0,
           shadowColor: Colors.transparent,
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
@@ -176,11 +195,13 @@ class AppTheme {
         ),
       ),
 
-      // Outlined buttons - secondary action
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: textPrimary,
-          side: const BorderSide(color: Color(0xFF2A2A38), width: 1.5),
+          side: BorderSide(
+            color: isDark ? const Color(0xFF2A2A38) : const Color(0xFFE5E7EB),
+            width: 1.5,
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -193,7 +214,6 @@ class AppTheme {
         ),
       ),
 
-      // Text buttons
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: primaryColor,
@@ -206,7 +226,6 @@ class AppTheme {
         ),
       ),
 
-      // Navigation bar - subtle and clean
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surfaceColor,
         elevation: 0,
@@ -214,14 +233,14 @@ class AppTheme {
         indicatorColor: primaryColor.withOpacity(0.15),
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return const TextStyle(
+            return TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
               color: primaryColor,
               letterSpacing: 0.3,
             );
           }
-          return const TextStyle(
+          return TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
             color: textTertiary,
@@ -230,24 +249,23 @@ class AppTheme {
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) {
-            return const IconThemeData(color: primaryColor, size: 26);
+            return IconThemeData(color: primaryColor, size: 26);
           }
-          return const IconThemeData(color: textTertiary, size: 26);
+          return IconThemeData(color: textTertiary, size: 26);
         }),
       ),
 
-      // Dialogs - elevated surface
       dialogTheme: DialogThemeData(
-        backgroundColor: _surfaceElevated,
+        backgroundColor: surfaceElevated,
         elevation: 8,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           fontSize: 22,
           fontWeight: FontWeight.w700,
           color: textPrimary,
           letterSpacing: -0.5,
         ),
-        contentTextStyle: const TextStyle(
+        contentTextStyle: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w400,
           color: textSecondary,
@@ -255,20 +273,17 @@ class AppTheme {
         ),
       ),
 
-      // Dividers - subtle separation
-      dividerTheme: const DividerThemeData(
-        color: Color(0xFF2A2A38),
+      dividerTheme: DividerThemeData(
+        color: isDark ? const Color(0xFF2A2A38) : const Color(0xFFE5E7EB),
         thickness: 1,
         space: 1,
       ),
 
-      // Icon theme
-      iconTheme: const IconThemeData(color: textSecondary, size: 24),
+      iconTheme: IconThemeData(color: textSecondary, size: 24),
 
-      // Snackbar theme
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: _surfaceElevated,
-        contentTextStyle: const TextStyle(
+        backgroundColor: surfaceElevated,
+        contentTextStyle: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w500,
           color: textPrimary,
@@ -278,18 +293,18 @@ class AppTheme {
         elevation: 4,
       ),
 
-      // Progress indicator
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
+      progressIndicatorTheme: ProgressIndicatorThemeData(
         color: primaryColor,
-        linearTrackColor: Color(0xFF2A2A38),
+        linearTrackColor: isDark
+            ? const Color(0xFF2A2A38)
+            : const Color(0xFFE5E7EB),
       ),
     );
   }
 
-  // Additional utility colors
-  static const surfaceVariant = _surfaceElevated;
-
-  // Additional utility colors
-  static const borderColor = Color(0xFF2A2A38);
-  static const dividerColor = Color(0xFF2A2A38);
+  // Additional utility colors for direct access
+  Color get borderColor =>
+      isDark ? const Color(0xFF2A2A38) : const Color(0xFFE5E7EB);
+  Color get dividerColor =>
+      isDark ? const Color(0xFF2A2A38) : const Color(0xFFE5E7EB);
 }

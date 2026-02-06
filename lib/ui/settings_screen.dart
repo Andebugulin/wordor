@@ -5,6 +5,7 @@ import '../providers/app_providers.dart';
 import '../services/notification_service.dart';
 import '../services/ai_hint_service.dart';
 import 'word_library_screen.dart';
+import 'theme_customization_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -143,6 +144,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
                   const SizedBox(height: 16),
+                  _SettingsTile(
+                    icon: Icons.palette_outlined,
+                    title: 'Theme',
+                    subtitle: 'Customize colors and appearance',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ThemeCustomizationScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   _SettingsTile(
                     icon: Icons.library_books_outlined,
                     title: 'Saved Words',
@@ -668,6 +681,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  // In settings_screen.dart, update the _showHuggingFaceApiKeyDialog method:
+
   Future<void> _showHuggingFaceApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
@@ -730,6 +745,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () async {
               await storage.deleteHuggingFaceApiKey();
               ref.invalidate(huggingfaceApiKeyProvider);
+              // ADD THIS LINE:
+              ref.invalidate(currentAIProviderHasKeyProvider);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -791,6 +808,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       await storage.saveHuggingFaceApiKey(result);
       ref.invalidate(huggingfaceApiKeyProvider);
+      // ADD THIS LINE:
+      ref.invalidate(currentAIProviderHasKeyProvider);
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -850,6 +869,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () async {
               await storage.deleteGeminiApiKey();
               ref.invalidate(geminiApiKeyProvider);
+              // ADD THIS LINE:
+              ref.invalidate(currentAIProviderHasKeyProvider);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -859,6 +880,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
             child: const Text('Remove'),
           ),
+
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
@@ -875,6 +897,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final storage = ref.read(apiKeyStorageProvider);
       await storage.saveGeminiApiKey(result);
       ref.invalidate(geminiApiKeyProvider);
+      ref.invalidate(currentAIProviderHasKeyProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,

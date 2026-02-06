@@ -1,10 +1,13 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/database.dart';
 import '../data/deepl_service.dart';
 import '../services/gemini_service.dart';
 import '../services/ai_hint_service.dart';
+import '../services/theme_settings.dart';
 import '../data/api_key_storage.dart';
+import '../theme.dart';
 
 // Database provider
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -47,7 +50,7 @@ final aiProviderPreferenceProvider = FutureProvider<AIProvider>((ref) async {
   return providerName == 'gemini' ? AIProvider.gemini : AIProvider.huggingface;
 });
 
-// Provider that checks if the CURRENTLY SELECTED AI provider has a key
+// FIX: Provider that checks if the CURRENTLY SELECTED AI provider has a key
 final currentAIProviderHasKeyProvider = FutureProvider<bool>((ref) async {
   // Get the currently selected provider
   final provider = await ref.watch(aiProviderPreferenceProvider.future);
@@ -133,4 +136,104 @@ final dueWordsProvider = FutureProvider<List<WordWithRecall>>((ref) async {
 final dueWordCountProvider = FutureProvider<int>((ref) async {
   final db = ref.watch(databaseProvider);
   return await db.getDueWordCount();
+});
+
+// ============================================================
+// THEME PROVIDERS
+// ============================================================
+
+// Theme mode provider
+final themeModeProvider = FutureProvider<ThemeMode>((ref) async {
+  final settings = ThemeSettings();
+  return await settings.getThemeMode();
+});
+
+// Dark theme colors provider
+final darkThemeColorsProvider = FutureProvider<Map<String, Color>>((ref) async {
+  final settings = ThemeSettings();
+  return await settings.loadAllColors(true);
+});
+
+// Light theme colors provider
+final lightThemeColorsProvider = FutureProvider<Map<String, Color>>((
+  ref,
+) async {
+  final settings = ThemeSettings();
+  return await settings.loadAllColors(false);
+});
+
+// Dark theme provider
+final darkThemeProvider = Provider<AppTheme>((ref) {
+  final colorsAsync = ref.watch(darkThemeColorsProvider);
+
+  return colorsAsync.when(
+    data: (colors) => AppTheme(
+      primaryColor: colors['primary']!,
+      accentColor: colors['accent']!,
+      backgroundColor: colors['background']!,
+      surfaceColor: colors['surface']!,
+      successColor: colors['success']!,
+      warningColor: colors['warning']!,
+      errorColor: colors['error']!,
+      isDark: true,
+    ),
+    loading: () => AppTheme(
+      primaryColor: ThemeSettings.defaultDarkPrimary,
+      accentColor: ThemeSettings.defaultDarkAccent,
+      backgroundColor: ThemeSettings.defaultDarkBackground,
+      surfaceColor: ThemeSettings.defaultDarkSurface,
+      successColor: ThemeSettings.defaultDarkSuccess,
+      warningColor: ThemeSettings.defaultDarkWarning,
+      errorColor: ThemeSettings.defaultDarkError,
+      isDark: true,
+    ),
+    error: (_, __) => AppTheme(
+      primaryColor: ThemeSettings.defaultDarkPrimary,
+      accentColor: ThemeSettings.defaultDarkAccent,
+      backgroundColor: ThemeSettings.defaultDarkBackground,
+      surfaceColor: ThemeSettings.defaultDarkSurface,
+      successColor: ThemeSettings.defaultDarkSuccess,
+      warningColor: ThemeSettings.defaultDarkWarning,
+      errorColor: ThemeSettings.defaultDarkError,
+      isDark: true,
+    ),
+  );
+});
+
+// Light theme provider
+final lightThemeProvider = Provider<AppTheme>((ref) {
+  final colorsAsync = ref.watch(lightThemeColorsProvider);
+
+  return colorsAsync.when(
+    data: (colors) => AppTheme(
+      primaryColor: colors['primary']!,
+      accentColor: colors['accent']!,
+      backgroundColor: colors['background']!,
+      surfaceColor: colors['surface']!,
+      successColor: colors['success']!,
+      warningColor: colors['warning']!,
+      errorColor: colors['error']!,
+      isDark: false,
+    ),
+    loading: () => AppTheme(
+      primaryColor: ThemeSettings.defaultLightPrimary,
+      accentColor: ThemeSettings.defaultLightAccent,
+      backgroundColor: ThemeSettings.defaultLightBackground,
+      surfaceColor: ThemeSettings.defaultLightSurface,
+      successColor: ThemeSettings.defaultLightSuccess,
+      warningColor: ThemeSettings.defaultLightWarning,
+      errorColor: ThemeSettings.defaultLightError,
+      isDark: false,
+    ),
+    error: (_, __) => AppTheme(
+      primaryColor: ThemeSettings.defaultLightPrimary,
+      accentColor: ThemeSettings.defaultLightAccent,
+      backgroundColor: ThemeSettings.defaultLightBackground,
+      surfaceColor: ThemeSettings.defaultLightSurface,
+      successColor: ThemeSettings.defaultLightSuccess,
+      warningColor: ThemeSettings.defaultLightWarning,
+      errorColor: ThemeSettings.defaultLightError,
+      isDark: false,
+    ),
+  );
 });

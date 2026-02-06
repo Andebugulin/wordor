@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/database.dart';
 import '../providers/app_providers.dart';
 import '../services/tts_service.dart';
-import '../theme.dart';
 import 'word_library_screen.dart';
 
 enum HintType { aiExample, aiExplanation, firstLetter, fullAnswer }
@@ -181,7 +180,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     final hasAIKey = currentAIKeyAsync.value ?? false;
 
     return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         titleSpacing: 24,
         title: Row(
@@ -237,7 +236,11 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error_outline, size: 64, color: AppTheme.errorColor),
+                Icon(
+                  Icons.error_outline,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.error,
+                ),
                 const SizedBox(height: 16),
                 Text(
                   'Something went wrong',
@@ -266,7 +269,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
         // Minimalistic progress header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-          color: AppTheme.backgroundColor,
+          color: Theme.of(context).scaffoldBackgroundColor,
           child: Column(
             children: [
               Row(
@@ -275,14 +278,14 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                   Text(
                     '$reviewed / $total',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   Text(
                     '${((progress * 100).toInt())}%',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textSecondary,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -295,8 +298,8 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                   value: progress,
                   minHeight: 3,
                   backgroundColor: const Color(0xFF2A2A38),
-                  valueColor: const AlwaysStoppedAnimation(
-                    AppTheme.primaryColor,
+                  valueColor: AlwaysStoppedAnimation(
+                    Theme.of(context).colorScheme.primary,
                   ),
                 ),
               ),
@@ -307,7 +310,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
         // Main word display - centered and prominent
         Expanded(
           child: Container(
-            color: AppTheme.backgroundColor,
+            color: Theme.of(context).scaffoldBackgroundColor,
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 32),
               child: Column(
@@ -351,7 +354,9 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                       Text(
                         '${word.sourceLang} → ${word.targetLang}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppTheme.textTertiary,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant.withOpacity(0.6),
                           letterSpacing: 1,
                           fontWeight: FontWeight.w600,
                         ),
@@ -381,7 +386,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: AppTheme.backgroundColor,
+            color: Theme.of(context).scaffoldBackgroundColor,
             border: Border(
               top: BorderSide(color: const Color(0xFF2A2A38), width: 1),
             ),
@@ -397,10 +402,12 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(0, 56),
                       side: BorderSide(
-                        color: AppTheme.errorColor.withOpacity(0.3),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.error.withOpacity(0.3),
                         width: 1.5,
                       ),
-                      foregroundColor: AppTheme.errorColor,
+                      foregroundColor: Theme.of(context).colorScheme.error,
                     ),
                     child: const Text('Forgot'),
                   ),
@@ -417,10 +424,10 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size(0, 56),
                             side: BorderSide(
-                              color: AppTheme.warningColor.withOpacity(0.3),
+                              color: const Color(0xFFFFB86C).withOpacity(0.3),
                               width: 1.5,
                             ),
-                            foregroundColor: AppTheme.warningColor,
+                            foregroundColor: const Color(0xFFFFB86C),
                           ),
                           child: const Text('Used Hint'),
                         )
@@ -428,7 +435,9 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                           onPressed: () => _markKnown(wordRecall),
                           style: ElevatedButton.styleFrom(
                             minimumSize: const Size(0, 56),
-                            backgroundColor: AppTheme.primaryColor,
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.primary,
                             foregroundColor: Colors.black,
                           ),
                           child: const Text(
@@ -514,7 +523,9 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                 Text(
                   'Generating hint...',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppTheme.textTertiary,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withOpacity(0.6),
                   ),
                 ),
               ],
@@ -600,7 +611,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             Icon(
               Icons.check_circle_outline,
               size: 80,
-              color: AppTheme.successColor.withOpacity(0.5),
+              color: const Color(0xFF4ADEAA).withOpacity(0.5),
             ),
             const SizedBox(height: 32),
             Text(
@@ -610,9 +621,9 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             const SizedBox(height: 12),
             Text(
               'Reviewed ${_reviewedIds.length} ${_reviewedIds.length == 1 ? 'word' : 'words'}',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 40),
             ElevatedButton(
@@ -636,7 +647,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             Icon(
               Icons.check_circle_outline,
               size: 80,
-              color: AppTheme.successColor.withOpacity(0.5),
+              color: const Color(0xFF4ADEAA).withOpacity(0.5),
             ),
             const SizedBox(height: 32),
             Text(
@@ -646,9 +657,9 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             const SizedBox(height: 12),
             Text(
               'No words to review right now',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyLarge?.copyWith(color: AppTheme.textSecondary),
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 40),
             ElevatedButton(
@@ -720,7 +731,7 @@ class _MinimalHintButton extends StatelessWidget {
       onPressed: onPressed,
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        foregroundColor: AppTheme.textSecondary,
+        foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
       icon: Icon(icon, size: 18),
       label: Text(
@@ -754,11 +765,11 @@ class _MinimalHintCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceColor,
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isAnswer
-                ? AppTheme.successColor.withOpacity(0.2)
+                ? const Color(0xFF4ADEAA).withOpacity(0.2)
                 : const Color(0xFF2A2A38),
             width: 1.5,
           ),
@@ -771,7 +782,9 @@ class _MinimalHintCard extends StatelessWidget {
                 Text(
                   label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textTertiary,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withOpacity(0.6),
                     fontWeight: FontWeight.w600,
                     letterSpacing: 0.5,
                   ),
@@ -781,7 +794,9 @@ class _MinimalHintCard extends StatelessWidget {
                   Icon(
                     Icons.volume_up_outlined,
                     size: 16,
-                    color: AppTheme.textTertiary,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withOpacity(0.6),
                   ),
               ],
             ),
@@ -791,7 +806,7 @@ class _MinimalHintCard extends StatelessWidget {
               style: isLarge
                   ? Theme.of(context).textTheme.displayMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: isAnswer ? AppTheme.successColor : null,
+                      color: isAnswer ? const Color(0xFF4ADEAA) : null,
                     )
                   : Theme.of(context).textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w500,
