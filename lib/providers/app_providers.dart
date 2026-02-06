@@ -22,7 +22,7 @@ final apiKeyProvider = FutureProvider<String?>((ref) async {
   return await storage.getApiKey();
 });
 
-// Gemini API key state provider (legacy)
+// Gemini API key state provider
 final geminiApiKeyProvider = FutureProvider<String?>((ref) async {
   final storage = ref.watch(apiKeyStorageProvider);
   return await storage.getGeminiApiKey();
@@ -45,6 +45,21 @@ final aiProviderPreferenceProvider = FutureProvider<AIProvider>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final providerName = prefs.getString('ai_provider') ?? 'huggingface';
   return providerName == 'gemini' ? AIProvider.gemini : AIProvider.huggingface;
+});
+
+// Provider that checks if the CURRENTLY SELECTED AI provider has a key
+final currentAIProviderHasKeyProvider = FutureProvider<bool>((ref) async {
+  // Get the currently selected provider
+  final provider = await ref.watch(aiProviderPreferenceProvider.future);
+  final storage = ref.watch(apiKeyStorageProvider);
+
+  if (provider == AIProvider.huggingface) {
+    final key = await storage.getHuggingFaceApiKey();
+    return key != null && key.isNotEmpty;
+  } else {
+    final key = await storage.getGeminiApiKey();
+    return key != null && key.isNotEmpty;
+  }
 });
 
 // DeepL service provider
@@ -70,7 +85,6 @@ final aiHintServiceProvider = Provider<AIHintService?>((ref) {
         return apiKeyAsync.when(
           data: (apiKey) {
             if (apiKey == null) return null;
-
             return modelAsync.when(
               data: (model) => AIHintService(
                 apiKey,

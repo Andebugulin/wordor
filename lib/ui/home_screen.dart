@@ -44,11 +44,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _checkDueWordsOnLaunch() async {
     // Wait a bit for the app to fully load
     await Future.delayed(const Duration(milliseconds: 500));
-
     if (!mounted) return;
 
     final dueCountAsync = ref.read(dueWordCountProvider);
-
     dueCountAsync.when(
       data: (count) async {
         if (count > 0) {
@@ -65,11 +63,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onNavTap(int index) {
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    // Use jumpToPage for direct navigation to avoid scroll-through effect
+    // Only animate if moving to adjacent page
+    final distance = (index - _currentIndex).abs();
+
+    if (distance <= 1) {
+      // Adjacent pages: smooth animation is fine
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      // Non-adjacent pages: jump directly to avoid scroll-through
+      _pageController.jumpToPage(index);
+    }
   }
 
   @override

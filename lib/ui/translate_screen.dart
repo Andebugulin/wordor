@@ -350,11 +350,11 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
     super.build(context); // Required for AutomaticKeepAliveClientMixin
 
     final deeplKeyAsync = ref.watch(apiKeyProvider);
-    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
-    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
-
     final hasDeepLKey = deeplKeyAsync.value != null;
-    final hasAIKey = (hfKeyAsync.value != null || geminiKeyAsync.value != null);
+
+    //Use the provider that checks the CURRENT AI provider's key status
+    final currentAIKeyAsync = ref.watch(currentAIProviderHasKeyProvider);
+    final hasAIKey = currentAIKeyAsync.value ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -772,6 +772,9 @@ class _TranslationHistoryScreenState
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
+  // Key to force FutureBuilder rebuild
+  int _rebuildKey = 0;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -793,21 +796,22 @@ class _TranslationHistoryScreenState
 
       if (words.isNotEmpty) {
         await db.deleteWord(words.first.id);
-        await (db.update(db.translationHistory)
-              ..where((t) => t.id.equals(item.id)))
-            .write(TranslationHistoryCompanion(saved: drift.Value(false)));
+      }
 
-        ref.invalidate(dueWordCountProvider);
+      await (db.update(db.translationHistory)
+            ..where((t) => t.id.equals(item.id)))
+          .write(TranslationHistoryCompanion(saved: drift.Value(false)));
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Word removed from recall'),
-              behavior: SnackBarBehavior.floating,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
+      ref.invalidate(dueWordCountProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Word removed from recall'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
     } else {
       // Save: add to words database
@@ -838,7 +842,10 @@ class _TranslationHistoryScreenState
       }
     }
 
-    setState(() {});
+    //Increment key to force FutureBuilder rebuild
+    setState(() {
+      _rebuildKey++;
+    });
   }
 
   @override
@@ -876,7 +883,9 @@ class _TranslationHistoryScreenState
 
               if (confirmed == true && context.mounted) {
                 await db.clearHistory();
-                setState(() {});
+                setState(() {
+                  _rebuildKey++; // Force rebuild
+                });
               }
             },
             icon: const Icon(Icons.delete_outline),
@@ -909,6 +918,7 @@ class _TranslationHistoryScreenState
           ),
           Expanded(
             child: FutureBuilder<List<TranslationHistoryData>>(
+              key: ValueKey(_rebuildKey),
               future: db.getHistory(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {

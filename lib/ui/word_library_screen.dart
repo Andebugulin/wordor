@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:drift/drift.dart' as drift;
 import '../data/database.dart';
 import '../providers/app_providers.dart';
 import '../services/tts_service.dart';
@@ -45,7 +46,23 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
 
     if (confirmed == true) {
       final db = ref.read(databaseProvider);
+
+      // Get the word details BEFORE deleting
+      final word = await (db.select(
+        db.words,
+      )..where((w) => w.id.equals(wordId))).getSingle();
+
+      // Delete the word from words table (cascades to recalls)
       await db.deleteWord(wordId);
+
+      // Update translation_history to mark as not saved
+      await (db.update(db.translationHistory)..where(
+            (t) =>
+                t.source.equals(word.source) &
+                t.translation.equals(word.translation),
+          ))
+          .write(TranslationHistoryCompanion(saved: drift.Value(false)));
+
       ref.invalidate(dueWordCountProvider);
       setState(() {});
     }

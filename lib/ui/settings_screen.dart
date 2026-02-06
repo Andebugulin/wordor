@@ -57,9 +57,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       'ai_provider',
       provider == AIProvider.gemini ? 'gemini' : 'huggingface',
     );
-    setState(() => _selectedAIProvider = provider);
+
     ref.invalidate(aiProviderPreferenceProvider);
     ref.invalidate(aiHintServiceProvider);
+
+    // Update state and force rebuild
+    setState(() {
+      _selectedAIProvider = provider;
+    });
   }
 
   Future<void> _saveHFModel(String modelId) async {
@@ -81,16 +86,29 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  bool _hasCurrentAIKey() {
+    if (_selectedAIProvider == AIProvider.huggingface) {
+      final hfKeyAsync = ref.read(huggingfaceApiKeyProvider);
+      return hfKeyAsync.value != null && hfKeyAsync.value!.isNotEmpty;
+    } else {
+      final geminiKeyAsync = ref.read(geminiApiKeyProvider);
+      return geminiKeyAsync.value != null && geminiKeyAsync.value!.isNotEmpty;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final deeplKeyAsync = ref.watch(apiKeyProvider);
-    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
-    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
-
     final hasDeepLKey = deeplKeyAsync.value != null;
-    final hasHFKey = hfKeyAsync.value != null;
-    final hasGeminiKey = geminiKeyAsync.value != null;
-    final hasAIKey = (hasHFKey || hasGeminiKey);
+
+    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
+    final hasGeminiKey =
+        geminiKeyAsync.value != null && geminiKeyAsync.value!.isNotEmpty;
+
+    // Use the synchronous check
+    final hasAIKey = _hasCurrentAIKey();
+    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
+    final hasHFKey = hfKeyAsync.value != null && hfKeyAsync.value!.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(

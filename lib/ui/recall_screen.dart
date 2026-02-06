@@ -174,11 +174,11 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     final hasAI = ref.watch(aiHintServiceProvider) != null;
 
     final deeplKeyAsync = ref.watch(apiKeyProvider);
-    final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
-    final geminiKeyAsync = ref.watch(geminiApiKeyProvider);
-
     final hasDeepLKey = deeplKeyAsync.value != null;
-    final hasAIKey = (hfKeyAsync.value != null || geminiKeyAsync.value != null);
+
+    // Use the provider that checks the CURRENT AI provider's key status
+    final currentAIKeyAsync = ref.watch(currentAIProviderHasKeyProvider);
+    final hasAIKey = currentAIKeyAsync.value ?? false;
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
