@@ -358,30 +358,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onTap: () => _showTimePickerDialog(context),
                     ),
                   ],
-                  const SizedBox(height: 32),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      'Debug & Testing',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _SettingsTile(
-                    icon: Icons.notifications_active,
-                    title: 'Test Notification',
-                    subtitle: 'Send a test notification now',
-                    onTap: () => _sendTestNotification(context, ref),
-                  ),
-                  const SizedBox(height: 8),
-                  _SettingsTile(
-                    icon: Icons.fast_forward,
-                    title: 'Make All Words Due',
-                    subtitle: 'Test recall immediately',
-                    onTap: () => _makeAllWordsDue(context, ref),
-                  ),
+                  // const SizedBox(height: 32),
+                  // Padding(
+                  //   padding: const EdgeInsets.symmetric(horizontal: 8),
+                  //   child: Text(
+                  //     'Debug & Testing',
+                  //     style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  //       color: Theme.of(context).colorScheme.primary,
+                  //     ),
+                  //   ),
+                  // ),
+                  // const SizedBox(height: 8),
+                  // _SettingsTile(
+                  //   icon: Icons.notifications_active,
+                  //   title: 'Test Notification',
+                  //   subtitle: 'Send a test notification now',
+                  //   onTap: () => _sendTestNotification(context, ref),
+                  // ),
+                  // const SizedBox(height: 8),
+                  // _SettingsTile(
+                  //   icon: Icons.fast_forward,
+                  //   title: 'Make All Words Due',
+                  //   subtitle: 'Test recall immediately',
+                  //   onTap: () => _makeAllWordsDue(context, ref),
+                  // ),
                   const SizedBox(height: 32),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
