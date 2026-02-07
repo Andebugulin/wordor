@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/database.dart';
 import '../data/deepl_service.dart';
-import '../services/gemini_service.dart';
 import '../services/ai_hint_service.dart';
 import '../services/theme_settings.dart';
 import '../data/api_key_storage.dart';
@@ -111,16 +110,6 @@ final aiHintServiceProvider = Provider<AIHintService?>((ref) {
         );
       }
     },
-    loading: () => null,
-    error: (_, __) => null,
-  );
-});
-
-// Legacy gemini service (for backwards compatibility)
-final geminiServiceProvider = Provider<GeminiService?>((ref) {
-  final apiKeyAsync = ref.watch(geminiApiKeyProvider);
-  return apiKeyAsync.when(
-    data: (apiKey) => apiKey != null ? GeminiService(apiKey) : null,
     loading: () => null,
     error: (_, __) => null,
   );
