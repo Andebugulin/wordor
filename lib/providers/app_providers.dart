@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../data/database.dart';
 import '../data/deepl_service.dart';
 import '../services/ai_hint_service.dart';
@@ -125,6 +127,22 @@ final dueWordsProvider = FutureProvider<List<WordWithRecall>>((ref) async {
 final dueWordCountProvider = FutureProvider<int>((ref) async {
   final db = ref.watch(databaseProvider);
   return await db.getDueWordCount();
+});
+
+// Provider for GitHub stars
+final githubStarsProvider = FutureProvider<int>((ref) async {
+  try {
+    final response = await http.get(
+      Uri.parse('https://api.github.com/repos/andebugulin/wordor'),
+    );
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['stargazers_count'] as int;
+    }
+  } catch (e) {
+    // Fallback if API fails
+  }
+  return 0;
 });
 
 // ============================================================

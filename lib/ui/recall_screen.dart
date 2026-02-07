@@ -8,6 +8,94 @@ import 'word_library_screen.dart';
 
 enum HintType { aiExample, aiExplanation, firstLetter, fullAnswer }
 
+// StateNotifier to persist recall session state
+class RecallSessionState {
+  final Map<int, Set<HintType>> usedHintsPerWord;
+  final Map<int, Map<HintType, String>> hintContentsPerWord;
+
+  RecallSessionState({
+    required this.usedHintsPerWord,
+    required this.hintContentsPerWord,
+  });
+
+  RecallSessionState copyWith({
+    Map<int, Set<HintType>>? usedHintsPerWord,
+    Map<int, Map<HintType, String>>? hintContentsPerWord,
+  }) {
+    return RecallSessionState(
+      usedHintsPerWord: usedHintsPerWord ?? this.usedHintsPerWord,
+      hintContentsPerWord: hintContentsPerWord ?? this.hintContentsPerWord,
+    );
+  }
+}
+
+class RecallSessionNotifier extends StateNotifier<RecallSessionState> {
+  RecallSessionNotifier()
+    : super(RecallSessionState(usedHintsPerWord: {}, hintContentsPerWord: {}));
+
+  void addHint(int wordId, HintType type, String content) {
+    final newUsedHints = Map<int, Set<HintType>>.from(state.usedHintsPerWord);
+    final newContents = Map<int, Map<HintType, String>>.from(
+      state.hintContentsPerWord,
+    );
+
+    newUsedHints.putIfAbsent(wordId, () => {}).add(type);
+    newContents.putIfAbsent(wordId, () => {})[type] = content;
+
+    state = state.copyWith(
+      usedHintsPerWord: newUsedHints,
+      hintContentsPerWord: newContents,
+    );
+  }
+
+  void removeHint(int wordId, HintType type) {
+    final newUsedHints = Map<int, Set<HintType>>.from(state.usedHintsPerWord);
+    final newContents = Map<int, Map<HintType, String>>.from(
+      state.hintContentsPerWord,
+    );
+
+    newUsedHints[wordId]?.remove(type);
+    newContents[wordId]?.remove(type);
+
+    state = state.copyWith(
+      usedHintsPerWord: newUsedHints,
+      hintContentsPerWord: newContents,
+    );
+  }
+
+  void clearWord(int wordId) {
+    final newUsedHints = Map<int, Set<HintType>>.from(state.usedHintsPerWord);
+    final newContents = Map<int, Map<HintType, String>>.from(
+      state.hintContentsPerWord,
+    );
+
+    newUsedHints.remove(wordId);
+    newContents.remove(wordId);
+
+    state = state.copyWith(
+      usedHintsPerWord: newUsedHints,
+      hintContentsPerWord: newContents,
+    );
+  }
+
+  void clearSession() {
+    state = RecallSessionState(usedHintsPerWord: {}, hintContentsPerWord: {});
+  }
+
+  Set<HintType> getUsedHints(int wordId) {
+    return state.usedHintsPerWord[wordId] ?? {};
+  }
+
+  Map<HintType, String> getHintContents(int wordId) {
+    return state.hintContentsPerWord[wordId] ?? {};
+  }
+}
+
+final recallSessionProvider =
+    StateNotifierProvider<RecallSessionNotifier, RecallSessionState>((ref) {
+      return RecallSessionNotifier();
+    });
+
 class RecallScreen extends ConsumerStatefulWidget {
   const RecallScreen({super.key});
 
@@ -21,30 +109,24 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   int? _sessionTotal;
   final List<int> _reviewedIds = [];
   bool _sessionComplete = false;
-
-  // Hint state - now tracks which hints are shown, not just used
-  final Set<HintType> _shownHints = {};
-  final Map<HintType, String> _hintContents = {};
   bool _loadingHint = false;
 
   void _showNextWord() {
     setState(() {
       _currentIndex++;
       _totalReviewed++;
-      _shownHints.clear();
-      _hintContents.clear();
       _loadingHint = false;
     });
   }
 
   Future<void> _showHint(HintType type, Word word) async {
-    if (_shownHints.contains(type)) return; // Already shown
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
+    final usedHints = sessionNotifier.getUsedHints(word.id);
+
+    if (usedHints.contains(type)) return; // Already shown
 
     setState(() {
-      _shownHints.add(type);
-      if (type == HintType.aiExample || type == HintType.aiExplanation) {
-        _loadingHint = true;
-      }
+      _loadingHint = true;
     });
 
     // Handle AI hints
@@ -52,44 +134,32 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       final aiService = ref.read(aiHintServiceProvider);
 
       if (aiService == null) {
-        setState(() {
-          _loadingHint = false;
-          _shownHints.remove(type);
-        });
+        setState(() => _loadingHint = false);
         return;
       }
 
       try {
+        String content;
         if (type == HintType.aiExample) {
-          final example = await aiService.generateExample(
+          content = await aiService.generateExample(
             word: word.source,
             sourceLang: word.sourceLang,
           );
-          if (mounted) {
-            setState(() {
-              _hintContents[type] = example;
-              _loadingHint = false;
-            });
-          }
-        } else if (type == HintType.aiExplanation) {
-          final explanation = await aiService.generateExplanation(
+        } else {
+          content = await aiService.generateExplanation(
             word: word.source,
             translation: word.translation,
             targetLang: word.targetLang,
           );
-          if (mounted) {
-            setState(() {
-              _hintContents[type] = explanation;
-              _loadingHint = false;
-            });
-          }
+        }
+
+        if (mounted) {
+          sessionNotifier.addHint(word.id, type, content);
+          setState(() => _loadingHint = false);
         }
       } catch (e) {
         if (mounted) {
-          setState(() {
-            _loadingHint = false;
-            _shownHints.remove(type);
-          });
+          setState(() => _loadingHint = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Hint generation failed: $e'),
@@ -100,24 +170,83 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       }
     } else {
       // For non-AI hints, set content immediately
+      String content;
       if (type == HintType.firstLetter) {
-        _hintContents[type] = word.translation[0].toUpperCase();
-      } else if (type == HintType.fullAnswer) {
-        _hintContents[type] = word.translation;
+        content = word.translation[0].toUpperCase();
+      } else {
+        content = word.translation;
       }
+      sessionNotifier.addHint(word.id, type, content);
+      setState(() => _loadingHint = false);
     }
   }
 
+  Future<void> _reloadHint(HintType type, Word word) async {
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
+
+    // Remove the existing hint first
+    sessionNotifier.removeHint(word.id, type);
+
+    // Show the hint again (which will regenerate it)
+    await _showHint(type, word);
+  }
+
+  // Calculate interval multiplier based on hint type
+  double _getHintMultiplier(Set<HintType> usedHints) {
+    if (usedHints.isEmpty) {
+      return 2.5; // No hints used - full multiplier
+    }
+
+    // Worst hint used determines the multiplier
+    if (usedHints.contains(HintType.fullAnswer)) {
+      return 0.5; // Saw full answer - reset to very short interval
+    }
+    if (usedHints.contains(HintType.firstLetter)) {
+      return 1.0; // Used first letter - same interval
+    }
+    if (usedHints.contains(HintType.aiExplanation)) {
+      return 1.5; // Used explanation - slightly longer
+    }
+    if (usedHints.contains(HintType.aiExample)) {
+      return 2.0; // Used example - good progress
+    }
+
+    return 2.5; // Fallback
+  }
+
   Future<void> _markKnown(WordWithRecall wordRecall) async {
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
+    final usedHints = sessionNotifier.getUsedHints(wordRecall.word.id);
+
     _reviewedIds.add(wordRecall.word.id);
     final db = ref.read(databaseProvider);
-    await db.updateRecall(wordRecall.recall.id, true);
+    final recall = wordRecall.recall;
+
+    // Calculate new interval based on hints used
+    final multiplier = _getHintMultiplier(usedHints);
+    final newInterval = (recall.intervalDays * multiplier).round().clamp(
+      1,
+      365,
+    );
+
+    await (db.update(db.recalls)..where((r) => r.id.equals(recall.id))).write(
+      RecallsCompanion(
+        nextReview: Value(DateTime.now().add(Duration(days: newInterval))),
+        intervalDays: Value(newInterval),
+        reviewCount: Value(recall.reviewCount + 1),
+      ),
+    );
+
+    // Clear hints for this word
+    sessionNotifier.clearWord(wordRecall.word.id);
+
     ref.invalidate(dueWordsProvider);
     ref.invalidate(dueWordCountProvider);
     _showNextWord();
   }
 
   Future<void> _markPartial(WordWithRecall wordRecall) async {
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
     _reviewedIds.add(wordRecall.word.id);
     final db = ref.read(databaseProvider);
     final recall = wordRecall.recall;
@@ -131,34 +260,42 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       ),
     );
 
+    // Clear hints for this word
+    sessionNotifier.clearWord(wordRecall.word.id);
+
     ref.invalidate(dueWordsProvider);
     ref.invalidate(dueWordCountProvider);
     _showNextWord();
   }
 
   Future<void> _markUnknown(WordWithRecall wordRecall) async {
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
     _reviewedIds.add(wordRecall.word.id);
     final db = ref.read(databaseProvider);
     await db.updateRecall(wordRecall.recall.id, false);
+
+    // Clear hints for this word
+    sessionNotifier.clearWord(wordRecall.word.id);
+
     ref.invalidate(dueWordsProvider);
     ref.invalidate(dueWordCountProvider);
     _showNextWord();
   }
 
   void _completeSession() {
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
+    sessionNotifier.clearSession();
+
     setState(() {
       _sessionComplete = true;
       _currentIndex = 0;
       _totalReviewed = 0;
       _reviewedIds.clear();
       _sessionTotal = null;
-      _shownHints.clear();
-      _hintContents.clear();
     });
     ref.invalidate(dueWordsProvider);
   }
 
-  // Smart font size calculation based on word length
   double _calculateWordFontSize(String word) {
     if (word.length <= 8) return 56;
     if (word.length <= 12) return 48;
@@ -171,11 +308,8 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
   Widget build(BuildContext context) {
     final dueWordsAsync = ref.watch(dueWordsProvider);
     final hasAI = ref.watch(aiHintServiceProvider) != null;
-
     final deeplKeyAsync = ref.watch(apiKeyProvider);
     final hasDeepLKey = deeplKeyAsync.value != null;
-
-    // Use the provider that checks the CURRENT AI provider's key status
     final currentAIKeyAsync = ref.watch(currentAIProviderHasKeyProvider);
     final hasAIKey = currentAIKeyAsync.value ?? false;
 
@@ -187,7 +321,6 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
           children: [
             const Text('Recall'),
             const SizedBox(width: 12),
-            // Key status indicators
             _KeyStatusIndicator(
               icon: Icons.key,
               isActive: hasDeepLKey,
@@ -262,11 +395,14 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     final total = _sessionTotal!;
     final reviewed = _totalReviewed.clamp(0, total);
     final progress = total == 0 ? 0.0 : reviewed / total;
-    final hasUsedHint = _shownHints.isNotEmpty;
+
+    final sessionNotifier = ref.read(recallSessionProvider.notifier);
+    final shownHints = sessionNotifier.getUsedHints(word.id);
+    final hintContents = sessionNotifier.getHintContents(word.id);
+    final hasUsedHint = shownHints.isNotEmpty;
 
     return Column(
       children: [
-        // Minimalistic progress header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
           color: Theme.of(context).scaffoldBackgroundColor,
@@ -306,8 +442,6 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             ],
           ),
         ),
-
-        // Main word display - centered and prominent
         Expanded(
           child: Container(
             color: Theme.of(context).scaffoldBackgroundColor,
@@ -317,8 +451,6 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const SizedBox(height: 40),
-
-                  // The word itself - hero element with smart sizing
                   Column(
                     children: [
                       Text(
@@ -333,8 +465,6 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
-
-                      // Pronunciation button
                       IconButton.outlined(
                         onPressed: () =>
                             TtsService.speak(word.source, word.sourceLang),
@@ -347,10 +477,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                           padding: const EdgeInsets.all(16),
                         ),
                       ),
-
                       const SizedBox(height: 12),
-
-                      // Language indicator
                       Text(
                         '${word.sourceLang} → ${word.targetLang}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -363,26 +490,18 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                       ),
                     ],
                   ),
-
                   const SizedBox(height: 48),
-
-                  // Active hints display - ALL hints shown together
-                  if (_shownHints.isNotEmpty) ...[
-                    _buildAllHints(word),
+                  if (shownHints.isNotEmpty) ...[
+                    _buildAllHints(word, shownHints, hintContents),
                     const SizedBox(height: 32),
                   ],
-
-                  // Hint buttons - always visible unless all used
-                  _buildHintButtons(word, hasAI),
-
+                  _buildHintButtons(word, hasAI, shownHints),
                   const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
         ),
-
-        // Action buttons - clean bottom bar
         Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
@@ -395,7 +514,6 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
             top: false,
             child: Row(
               children: [
-                // Forgot button
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () => _markUnknown(wordRecall),
@@ -412,10 +530,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
                     child: const Text('Forgot'),
                   ),
                 ),
-
                 const SizedBox(width: 12),
-
-                // Hint or Know button
                 Expanded(
                   flex: 2,
                   child: hasUsedHint
@@ -457,10 +572,10 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     );
   }
 
-  Widget _buildHintButtons(Word word, bool hasAI) {
+  Widget _buildHintButtons(Word word, bool hasAI, Set<HintType> shownHints) {
     final availableHints = <Widget>[];
 
-    if (hasAI && !_shownHints.contains(HintType.aiExample)) {
+    if (hasAI && !shownHints.contains(HintType.aiExample)) {
       availableHints.add(
         _MinimalHintButton(
           label: 'Example',
@@ -472,7 +587,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       );
     }
 
-    if (hasAI && !_shownHints.contains(HintType.aiExplanation)) {
+    if (hasAI && !shownHints.contains(HintType.aiExplanation)) {
       availableHints.add(
         _MinimalHintButton(
           label: 'Explain',
@@ -484,7 +599,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       );
     }
 
-    if (!_shownHints.contains(HintType.firstLetter)) {
+    if (!shownHints.contains(HintType.firstLetter)) {
       availableHints.add(
         _MinimalHintButton(
           label: 'First Letter',
@@ -494,7 +609,7 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
       );
     }
 
-    if (!_shownHints.contains(HintType.fullAnswer)) {
+    if (!shownHints.contains(HintType.fullAnswer)) {
       availableHints.add(
         _MinimalHintButton(
           label: 'Show Answer',
@@ -542,57 +657,56 @@ class _RecallScreenState extends ConsumerState<RecallScreen> {
     );
   }
 
-  Widget _buildAllHints(Word word) {
+  Widget _buildAllHints(
+    Word word,
+    Set<HintType> shownHints,
+    Map<HintType, String> hintContents,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // AI Example
-        if (_shownHints.contains(HintType.aiExample) &&
-            _hintContents.containsKey(HintType.aiExample))
+        if (shownHints.contains(HintType.aiExample) &&
+            hintContents.containsKey(HintType.aiExample))
           _MinimalHintCard(
             label: 'Example',
-            content: _hintContents[HintType.aiExample]!,
+            content: hintContents[HintType.aiExample]!,
             onTap: () => TtsService.speak(
-              _hintContents[HintType.aiExample]!,
+              hintContents[HintType.aiExample]!,
               word.sourceLang,
             ),
+            onReload: () => _reloadHint(HintType.aiExample, word),
           ),
-
-        // AI Explanation
-        if (_shownHints.contains(HintType.aiExplanation) &&
-            _hintContents.containsKey(HintType.aiExplanation)) ...[
+        if (shownHints.contains(HintType.aiExplanation) &&
+            hintContents.containsKey(HintType.aiExplanation)) ...[
           const SizedBox(height: 12),
           _MinimalHintCard(
             label: 'Meaning',
-            content: _hintContents[HintType.aiExplanation]!,
+            content: hintContents[HintType.aiExplanation]!,
             onTap: () => TtsService.speak(
-              _hintContents[HintType.aiExplanation]!,
+              hintContents[HintType.aiExplanation]!,
               word.targetLang,
             ),
+            onReload: () => _reloadHint(HintType.aiExplanation, word),
           ),
         ],
-
-        // First Letter
-        if (_shownHints.contains(HintType.firstLetter) &&
-            _hintContents.containsKey(HintType.firstLetter)) ...[
+        if (shownHints.contains(HintType.firstLetter) &&
+            hintContents.containsKey(HintType.firstLetter)) ...[
           const SizedBox(height: 12),
           _MinimalHintCard(
             label: 'First Letter',
-            content: _hintContents[HintType.firstLetter]!,
+            content: hintContents[HintType.firstLetter]!,
             isLarge: true,
           ),
         ],
-
-        // Full Answer
-        if (_shownHints.contains(HintType.fullAnswer) &&
-            _hintContents.containsKey(HintType.fullAnswer)) ...[
+        if (shownHints.contains(HintType.fullAnswer) &&
+            hintContents.containsKey(HintType.fullAnswer)) ...[
           const SizedBox(height: 12),
           _MinimalHintCard(
             label: 'Answer',
-            content: _hintContents[HintType.fullAnswer]!,
+            content: hintContents[HintType.fullAnswer]!,
             isAnswer: true,
             onTap: () => TtsService.speak(
-              _hintContents[HintType.fullAnswer]!,
+              hintContents[HintType.fullAnswer]!,
               word.targetLang,
             ),
           ),
@@ -746,6 +860,7 @@ class _MinimalHintCard extends StatelessWidget {
   final String label;
   final String content;
   final VoidCallback? onTap;
+  final VoidCallback? onReload;
   final bool isLarge;
   final bool isAnswer;
 
@@ -753,6 +868,7 @@ class _MinimalHintCard extends StatelessWidget {
     required this.label,
     required this.content,
     this.onTap,
+    this.onReload,
     this.isLarge = false,
     this.isAnswer = false,
   });
@@ -790,7 +906,19 @@ class _MinimalHintCard extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                if (onTap != null)
+                if (onReload != null)
+                  IconButton(
+                    onPressed: onReload,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Regenerate hint',
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withOpacity(0.6),
+                  ),
+                if (onTap != null) ...[
+                  if (onReload != null) const SizedBox(width: 8),
                   Icon(
                     Icons.volume_up_outlined,
                     size: 16,
@@ -798,6 +926,7 @@ class _MinimalHintCard extends StatelessWidget {
                       context,
                     ).colorScheme.onSurfaceVariant.withOpacity(0.6),
                   ),
+                ],
               ],
             ),
             const SizedBox(height: 12),

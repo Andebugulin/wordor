@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../providers/app_providers.dart';
 import '../services/notification_service.dart';
 import '../services/ai_hint_service.dart';
 import 'word_library_screen.dart';
 import 'theme_customization_screen.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -62,7 +66,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(aiProviderPreferenceProvider);
     ref.invalidate(aiHintServiceProvider);
 
-    // Update state and force rebuild
     setState(() {
       _selectedAIProvider = provider;
     });
@@ -97,6 +100,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  Future<void> _launchURL(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Could not launch URL')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final deeplKeyAsync = ref.watch(apiKeyProvider);
@@ -106,10 +120,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final hasGeminiKey =
         geminiKeyAsync.value != null && geminiKeyAsync.value!.isNotEmpty;
 
-    // Use the synchronous check
     final hasAIKey = _hasCurrentAIKey();
     final hfKeyAsync = ref.watch(huggingfaceApiKeyProvider);
     final hasHFKey = hfKeyAsync.value != null && hfKeyAsync.value!.isNotEmpty;
+
+    final githubStarsAsync = ref.watch(githubStarsProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -118,7 +133,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             const Text('Settings'),
             const SizedBox(width: 12),
-            // Key status indicators
             _KeyStatusIndicator(
               icon: Icons.key,
               isActive: hasDeepLKey,
@@ -168,8 +182,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-
-                  // DeepL API Key with status indicator
                   _SettingsTileWithStatus(
                     icon: Icons.key_outlined,
                     title: 'DeepL API Key',
@@ -180,8 +192,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onTap: () => _showDeepLApiKeyDialog(context, ref),
                   ),
                   const SizedBox(height: 16),
-
-                  // AI Provider Section
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -192,8 +202,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-
-                  // AI Provider selector
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -233,8 +241,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-
-                  // HuggingFace API Key with status indicator
                   _SettingsTileWithStatus(
                     icon: Icons.auto_awesome_outlined,
                     title: 'HuggingFace API Key',
@@ -247,8 +253,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     isActive: _selectedAIProvider == AIProvider.huggingface,
                     onTap: () => _showHuggingFaceApiKeyDialog(context, ref),
                   ),
-
-                  // HuggingFace Model Selector
                   if (_selectedAIProvider == AIProvider.huggingface) ...[
                     const SizedBox(height: 8),
                     _SettingsTile(
@@ -258,10 +262,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onTap: () => _showModelSelector(context),
                     ),
                   ],
-
                   const SizedBox(height: 8),
-
-                  // Gemini API Key with status indicator
                   _SettingsTileWithStatus(
                     icon: Icons.auto_awesome_outlined,
                     title: 'Gemini API Key',
@@ -274,10 +275,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     isActive: _selectedAIProvider == AIProvider.gemini,
                     onTap: () => _showGeminiApiKeyDialog(context, ref),
                   ),
-
                   const SizedBox(height: 32),
-
-                  // Notifications section
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -288,7 +286,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -352,7 +349,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ],
                     ),
                   ),
-
                   if (_notificationsEnabled) ...[
                     const SizedBox(height: 8),
                     _SettingsTile(
@@ -362,10 +358,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       onTap: () => _showTimePickerDialog(context),
                     ),
                   ],
-
                   const SizedBox(height: 32),
-
-                  // Debug section
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -389,10 +382,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     subtitle: 'Test recall immediately',
                     onTap: () => _makeAllWordsDue(context, ref),
                   ),
-
                   const SizedBox(height: 32),
-
-                  // Danger zone
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -410,28 +400,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onTap: () => _showClearDataDialog(context, ref),
                     isDestructive: true,
                   ),
-
                   const SizedBox(height: 32),
-
-                  // App info
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Word Recall',
+                          'Wordor',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Version 1.2.0',
+                          'Version 1.0.0',
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
                                 color: Theme.of(
                                   context,
                                 ).colorScheme.onSurfaceVariant.withOpacity(0.5),
                               ),
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Connect',
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        // GitHub Link with Stars
+                        githubStarsAsync.when(
+                          data: (stars) => _GitHubLinkTile(
+                            stars: stars,
+                            onTap: () => _launchURL(
+                              'https://github.com/andebugulin/wordor',
+                            ),
+                          ),
+                          loading: () => _GitHubLinkTile(
+                            stars: null,
+                            onTap: () => _launchURL(
+                              'https://github.com/andebugulin/wordor',
+                            ),
+                          ),
+                          error: (_, __) => _GitHubLinkTile(
+                            stars: null,
+                            onTap: () => _launchURL(
+                              'https://github.com/andebugulin/wordor',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // LinkedIn Link
+                        _SocialLinkTile(
+                          icon: Icons.work_outline,
+                          title: 'LinkedIn',
+                          subtitle: 'Connect with me',
+                          onTap: () => _launchURL(
+                            'https://www.linkedin.com/in/andrei-gulin',
+                          ),
                         ),
                       ],
                     ),
@@ -599,7 +628,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  // Dialog methods remain the same as before
   Future<void> _showDeepLApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
@@ -608,7 +636,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final storage = ref.read(apiKeyStorageProvider);
     final existingKey = await storage.getApiKey();
 
-    // Show masked version of existing key if it exists
     if (existingKey != null && existingKey.isNotEmpty) {
       controller.text = '•' * 20;
     }
@@ -681,8 +708,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  // In settings_screen.dart, update the _showHuggingFaceApiKeyDialog method:
-
   Future<void> _showHuggingFaceApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
@@ -745,7 +770,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () async {
               await storage.deleteHuggingFaceApiKey();
               ref.invalidate(huggingfaceApiKeyProvider);
-              // ADD THIS LINE:
               ref.invalidate(currentAIProviderHasKeyProvider);
               if (context.mounted) {
                 Navigator.pop(context);
@@ -808,7 +832,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       await storage.saveHuggingFaceApiKey(result);
       ref.invalidate(huggingfaceApiKeyProvider);
-      // ADD THIS LINE:
       ref.invalidate(currentAIProviderHasKeyProvider);
 
       if (context.mounted) {
@@ -869,7 +892,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () async {
               await storage.deleteGeminiApiKey();
               ref.invalidate(geminiApiKeyProvider);
-              // ADD THIS LINE:
               ref.invalidate(currentAIProviderHasKeyProvider);
               if (context.mounted) {
                 Navigator.pop(context);
@@ -880,7 +902,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             },
             child: const Text('Remove'),
           ),
-
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
@@ -1186,6 +1207,171 @@ class _SettingsTileWithStatus extends StatelessWidget {
               ),
               Icon(
                 Icons.chevron_right,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GitHubLinkTile extends StatelessWidget {
+  final int? stars;
+  final VoidCallback onTap;
+
+  const _GitHubLinkTile({required this.stars, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: Row(
+            children: [
+              // GitHub icon
+              Container(
+                padding: const EdgeInsets.all(2),
+                child: FaIcon(
+                  FontAwesomeIcons.github,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'GitHub',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      'Source code',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Star count badge
+              if (stars != null && stars! > 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.star,
+                        size: 14,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$stars',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Icon(
+                Icons.open_in_new,
+                size: 16,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SocialLinkTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SocialLinkTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.open_in_new,
+                size: 16,
                 color: Theme.of(
                   context,
                 ).colorScheme.onSurfaceVariant.withOpacity(0.5),
