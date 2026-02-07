@@ -245,13 +245,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: Icons.auto_awesome_outlined,
                     title: 'HuggingFace API Key',
                     subtitle: _selectedAIProvider == AIProvider.huggingface
-                        ? (hasHFKey
-                              ? 'Configured'
-                              : 'Get free key at huggingface.co')
+                        ? (hasHFKey ? 'Configured' : 'Get free key here')
                         : 'Not active',
                     hasKey: hasHFKey,
                     isActive: _selectedAIProvider == AIProvider.huggingface,
                     onTap: () => _showHuggingFaceApiKeyDialog(context, ref),
+                    subtitleUrl:
+                        !hasHFKey &&
+                            _selectedAIProvider == AIProvider.huggingface
+                        ? 'https://huggingface.co/settings/tokens'
+                        : null,
                   ),
                   if (_selectedAIProvider == AIProvider.huggingface) ...[
                     const SizedBox(height: 8),
@@ -267,13 +270,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: Icons.auto_awesome_outlined,
                     title: 'Gemini API Key',
                     subtitle: _selectedAIProvider == AIProvider.gemini
-                        ? (hasGeminiKey
-                              ? 'Configured'
-                              : 'Get free key at ai.google.dev')
+                        ? (hasGeminiKey ? 'Configured' : 'Get free key here')
                         : 'Not active',
                     hasKey: hasGeminiKey,
                     isActive: _selectedAIProvider == AIProvider.gemini,
                     onTap: () => _showGeminiApiKeyDialog(context, ref),
+                    subtitleUrl:
+                        !hasGeminiKey &&
+                            _selectedAIProvider == AIProvider.gemini
+                        ? 'https://aistudio.google.com/api-keys'
+                        : null,
                   ),
                   const SizedBox(height: 32),
                   Padding(
@@ -754,7 +760,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ],
                 ),
               ),
-            const Text('Free at huggingface.co/settings/tokens'),
+            GestureDetector(
+              onTap: () =>
+                  _launchURL('https://www.deepl.com/en/your-account/keys'),
+              child: Text(
+                'Get free key here',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
@@ -1120,6 +1136,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
   final VoidCallback onTap;
   final bool hasKey;
   final bool isActive;
+  final String? subtitleUrl; // Add this parameter
 
   const _SettingsTileWithStatus({
     required this.icon,
@@ -1128,6 +1145,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
     required this.onTap,
     required this.hasKey,
     this.isActive = true,
+    this.subtitleUrl, // Add this
   });
 
   @override
@@ -1194,14 +1212,48 @@ class _SettingsTileWithStatus extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: hasKey && isActive
-                            ? statusColor
-                            : Theme.of(context).textTheme.bodyMedium?.color,
-                      ),
-                    ),
+                    // Modified subtitle to be clickable if URL provided
+                    subtitleUrl != null
+                        ? GestureDetector(
+                            onTap: () async {
+                              final uri = Uri.parse(subtitleUrl!);
+                              await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                            },
+                            child: Row(
+                              children: [
+                                Text(
+                                  subtitle,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                ),
+                                const SizedBox(width: 4),
+                                Icon(
+                                  Icons.open_in_new,
+                                  size: 14,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              ],
+                            ),
+                          )
+                        : Text(
+                            subtitle,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: hasKey && isActive
+                                      ? statusColor
+                                      : Theme.of(
+                                          context,
+                                        ).textTheme.bodyMedium?.color,
+                                ),
+                          ),
                   ],
                 ),
               ),

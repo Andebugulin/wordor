@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/deepl_service.dart';
 import '../services/ai_hint_service.dart';
 import '../providers/app_providers.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SetupScreen extends ConsumerStatefulWidget {
   const SetupScreen({super.key});
@@ -26,6 +27,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     _deeplController.dispose();
     _huggingfaceController.dispose();
     super.dispose();
+  }
+
+  Future<void> _launchURL(String url) async {
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Could not launch URL')));
+      }
+    }
   }
 
   Future<void> _validateDeepLKey() async {
@@ -305,7 +317,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                   child: Column(
                     children: [
                       TextButton(
-                        onPressed: () {},
+                        onPressed: () => _launchURL(
+                          'https://www.deepl.com/en/your-account/keys',
+                        ),
                         child: Text(
                           'Get DeepL API key →',
                           style: TextStyle(
@@ -315,7 +329,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                         ),
                       ),
                       TextButton(
-                        onPressed: () {},
+                        onPressed: () => _launchURL(
+                          'https://huggingface.co/settings/tokens',
+                        ),
                         child: Text(
                           'Get FREE HuggingFace API key →',
                           style: TextStyle(
