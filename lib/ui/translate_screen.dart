@@ -5,10 +5,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:async';
 import '../data/database.dart';
 import '../data/deepl_service.dart';
 import '../providers/app_providers.dart';
 import '../services/tts_service.dart';
+import '../services/spell_check_service.dart';
 import 'language_picker.dart';
 
 class TranslateScreen extends ConsumerStatefulWidget {
@@ -28,6 +30,9 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
   final _controller = TextEditingController();
   final _speech = stt.SpeechToText();
 
+  // Character limit constant (no visual counter, just validation)
+  static const int _characterLimit = 1000;
+
   List<String> _recentLanguages = ['FI', 'EN', 'DE'];
   String _sourceLang = 'FI';
   String _targetLang = 'EN';
@@ -37,6 +42,10 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
   String? _error;
   bool _isListening = false;
   bool _speechAvailable = false;
+
+  // Spell check state
+  SpellCheckResult? _spellCheck;
+  Timer? _debounceTimer;
 
   @override
   void initState() {
@@ -177,16 +186,77 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
     await prefs.setStringList('recent_languages', _recentLanguages);
   }
 
+  // Spell check handler - now with language support check
+  void _onTextChanged(String value) {
+    // Cancel previous debounce timer
+    _debounceTimer?.cancel();
+
+    if (value.isEmpty) {
+      setState(() => _spellCheck = null);
+      return;
+    }
+
+    // Check if language is supported
+    if (!SpellCheckService.isLanguageSupported(_sourceLang)) {
+      setState(() => _spellCheck = null);
+      return;
+    }
+
+    // Debounce spell check (wait 1000ms after user stops typing)
+    _debounceTimer = Timer(const Duration(milliseconds: 1000), () async {
+      if (!mounted) return;
+
+      final result = await SpellCheckService.checkSpelling(value, _sourceLang);
+
+      if (mounted) {
+        setState(() => _spellCheck = result);
+      }
+    });
+  }
+
+  // Apply spell check suggestion
+  // Apply spell check suggestion - smart replacement
+  void _applySuggestion(String suggestion) {
+    if (_spellCheck != null) {
+      // Use the smart applySuggestion method from SpellCheckResult
+      _controller.text = _spellCheck!.applySuggestion(suggestion);
+    } else {
+      // Fallback to direct replacement
+      _controller.text = suggestion;
+    }
+    setState(() {
+      _spellCheck = null;
+    });
+  }
+
   @override
   void dispose() {
     _controller.dispose();
     _speech.cancel();
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _translate() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+
+    // Check character limit - only show warning, don't block
+    if (text.length > _characterLimit) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Text is ${text.length} characters. You can translate it, but be aware that DeepL has a monthly limit of 500,000 characters.',
+          ),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      );
+    }
 
     final service = ref.read(deepLServiceProvider);
     if (service == null) return;
@@ -208,6 +278,7 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
       setState(() {
         _result = result;
         _error = null;
+        _spellCheck = null; // Clear spell check on successful translation
       });
 
       try {
@@ -218,6 +289,8 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
             translation: result.translation,
             sourceLang: result.sourceLang,
             targetLang: result.targetLang,
+            sourceTranscription: drift.Value(result.sourceTranscription),
+            targetTranscription: drift.Value(result.targetTranscription),
           ),
         );
       } catch (e) {
@@ -262,6 +335,8 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
         translation: _result!.translation,
         sourceLang: _result!.sourceLang,
         targetLang: _result!.targetLang,
+        sourceTranscription: drift.Value(_result!.sourceTranscription),
+        targetTranscription: drift.Value(_result!.targetTranscription),
       ),
     );
 
@@ -352,7 +427,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
     final deeplKeyAsync = ref.watch(apiKeyProvider);
     final hasDeepLKey = deeplKeyAsync.value != null;
 
-    //Use the provider that checks the CURRENT AI provider's key status
     final currentAIKeyAsync = ref.watch(currentAIProviderHasKeyProvider);
     final hasAIKey = currentAIKeyAsync.value ?? false;
 
@@ -363,7 +437,6 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
           children: [
             const Text('Translate'),
             const SizedBox(width: 12),
-            // Key status indicators
             _KeyStatusIndicator(
               icon: Icons.key,
               isActive: hasDeepLKey,
@@ -430,49 +503,85 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
                     ),
                     const SizedBox(height: 24),
 
-                    Stack(
-                      children: [
-                        TextField(
-                          controller: _controller,
-                          decoration: InputDecoration(
-                            hintText: 'Enter text or tap mic to speak',
-                            errorText: _error,
-                            contentPadding: const EdgeInsets.only(
-                              left: 20,
-                              right: 60,
-                              top: 20,
-                              bottom: 20,
+                    // Text input with perfectly positioned mic button
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _error != null
+                              ? Theme.of(context).colorScheme.error
+                              : Theme.of(context).colorScheme.surface,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          TextField(
+                            controller: _controller,
+                            decoration: InputDecoration(
+                              hintText: 'Enter text or tap mic to speak',
+                              errorText: null,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                20,
+                                20,
+                                56, // Add right padding for mic button
+                                12,
+                              ),
+                            ),
+                            maxLines: 4,
+                            onChanged: _onTextChanged,
+                            onSubmitted: (_) => _translate(),
+                          ),
+                          // Mic button positioned in bottom-right corner
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                IconButton(
+                                  onPressed: _isListening
+                                      ? _stopListening
+                                      : _startListening,
+                                  icon: Icon(
+                                    _isListening ? Icons.mic : Icons.mic_none,
+                                    size: 20,
+                                    color: _isListening
+                                        ? Theme.of(context).colorScheme.error
+                                        : Theme.of(context).colorScheme.primary,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: _isListening
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.error.withOpacity(0.1)
+                                        : Theme.of(context).colorScheme.primary
+                                              .withOpacity(0.1),
+                                    padding: const EdgeInsets.all(8),
+                                    minimumSize: const Size(36, 36),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          maxLines: 4,
-                          onSubmitted: (_) => _translate(),
-                        ),
-                        Positioned(
-                          right: 8,
-                          bottom: 8,
-                          child: IconButton(
-                            onPressed: _isListening
-                                ? _stopListening
-                                : _startListening,
-                            icon: Icon(
-                              _isListening ? Icons.mic : Icons.mic_none,
-                              color: _isListening
-                                  ? Theme.of(context).colorScheme.error
-                                  : Theme.of(context).colorScheme.primary,
-                            ),
-                            style: IconButton.styleFrom(
-                              backgroundColor: _isListening
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.error.withOpacity(0.1)
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.primary.withOpacity(0.1),
-                            ),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
+
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
 
                     if (_isListening) ...[
                       const SizedBox(height: 12),
@@ -508,6 +617,92 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
                               onPressed: _stopListening,
                               child: const Text('Stop'),
                             ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    // Improved spell check suggestions
+                    if (_spellCheck?.hasErrors == true) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withOpacity(0.3),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.spellcheck,
+                                  size: 18,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Did you mean?',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () {
+                                    setState(() => _spellCheck = null);
+                                  },
+                                  icon: const Icon(Icons.close, size: 18),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                              ],
+                            ),
+                            if (_spellCheck!.suggestions.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _spellCheck!.suggestions.map((
+                                  suggestion,
+                                ) {
+                                  return ActionChip(
+                                    label: Text(suggestion),
+                                    onPressed: () =>
+                                        _applySuggestion(suggestion),
+                                    backgroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.primary.withOpacity(0.1),
+                                    side: BorderSide(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary.withOpacity(0.3),
+                                    ),
+                                    labelStyle: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -549,14 +744,39 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Translation (target)
                             Row(
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    _result!.translation,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.headlineMedium,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _result!.translation,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.headlineMedium,
+                                      ),
+                                      // Target transcription
+                                      if (_result!.targetTranscription !=
+                                          null) ...[
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          _result!.targetTranscription!,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
+                                                    .withOpacity(0.7),
+                                                fontStyle: FontStyle.italic,
+                                              ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
                                 IconButton(
@@ -573,7 +793,10 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 16),
+                            const Divider(),
+                            const SizedBox(height: 16),
+                            // Original (source)
                             InkWell(
                               onTap: () => TtsService.speak(
                                 _result!.original,
@@ -594,13 +817,37 @@ class _TranslateScreenState extends ConsumerState<TranslateScreen>
                                         context,
                                       ).colorScheme.onSurfaceVariant,
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 12),
                                     Expanded(
-                                      child: Text(
-                                        _result!.original,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodyMedium,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _result!.original,
+                                            style: Theme.of(
+                                              context,
+                                            ).textTheme.bodyLarge,
+                                          ),
+                                          // Source transcription
+                                          if (_result!.sourceTranscription !=
+                                              null) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _result!.sourceTranscription!,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant
+                                                        .withOpacity(0.7),
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                     ),
                                   ],
@@ -758,7 +1005,7 @@ class _LanguageButton extends StatelessWidget {
   }
 }
 
-// Translation History Screen with save/unsave functionality
+// Translation History Screen
 class TranslationHistoryScreen extends ConsumerStatefulWidget {
   const TranslationHistoryScreen({super.key});
 
@@ -771,8 +1018,6 @@ class _TranslationHistoryScreenState
     extends ConsumerState<TranslationHistoryScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
-
-  // Key to force FutureBuilder rebuild
   int _rebuildKey = 0;
 
   @override
@@ -785,7 +1030,6 @@ class _TranslationHistoryScreenState
     final db = ref.read(databaseProvider);
 
     if (item.saved) {
-      // Unsave: remove from words database
       final words =
           await (db.select(db.words)..where(
                 (w) =>
@@ -814,13 +1058,14 @@ class _TranslationHistoryScreenState
         );
       }
     } else {
-      // Save: add to words database
       await db.addWord(
         WordsCompanion.insert(
           source: item.source,
           translation: item.translation,
           sourceLang: item.sourceLang,
           targetLang: item.targetLang,
+          sourceTranscription: drift.Value(item.sourceTranscription),
+          targetTranscription: drift.Value(item.targetTranscription),
         ),
       );
 
@@ -842,7 +1087,6 @@ class _TranslationHistoryScreenState
       }
     }
 
-    //Increment key to force FutureBuilder rebuild
     setState(() {
       _rebuildKey++;
     });
@@ -884,7 +1128,7 @@ class _TranslationHistoryScreenState
               if (confirmed == true && context.mounted) {
                 await db.clearHistory();
                 setState(() {
-                  _rebuildKey++; // Force rebuild
+                  _rebuildKey++;
                 });
               }
             },
@@ -1006,7 +1250,6 @@ class _TranslationHistoryScreenState
                                     ),
                               ),
                               const Spacer(),
-                              // Save/Unsave button
                               IconButton(
                                 onPressed: () => _toggleSaveWord(item),
                                 icon: Icon(
@@ -1026,7 +1269,6 @@ class _TranslationHistoryScreenState
                                     : 'Save for recall',
                               ),
                               const SizedBox(width: 4),
-                              // Delete button
                               IconButton(
                                 onPressed: () async {
                                   final confirmed = await showDialog<bool>(
@@ -1075,11 +1317,38 @@ class _TranslationHistoryScreenState
                             style: Theme.of(context).textTheme.bodyLarge
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
+                          if (item.sourceTranscription != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              item.sourceTranscription!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant
+                                        .withOpacity(0.7),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                            ),
+                          ],
                           const SizedBox(height: 8),
                           Text(
                             item.translation,
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
+                          if (item.targetTranscription != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              item.targetTranscription!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary.withOpacity(0.7),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                            ),
+                          ],
                         ],
                       ),
                     );

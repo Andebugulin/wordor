@@ -15,6 +15,8 @@ class Words extends Table {
   TextColumn get targetLang => text()();
   TextColumn get example => text().nullable()();
   TextColumn get exampleTranslation => text().nullable()();
+  TextColumn get sourceTranscription => text().nullable()();
+  TextColumn get targetTranscription => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -36,6 +38,8 @@ class TranslationHistory extends Table {
   TextColumn get translation => text()();
   TextColumn get sourceLang => text()();
   TextColumn get targetLang => text()();
+  TextColumn get sourceTranscription => text().nullable()();
+  TextColumn get targetTranscription => text().nullable()();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   BoolColumn get saved => boolean().withDefault(const Constant(false))();
 }
@@ -45,7 +49,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration {
@@ -57,6 +61,22 @@ class AppDatabase extends _$AppDatabase {
         if (from < 2) {
           // Create translation_history table if it doesn't exist
           await m.createTable(translationHistory);
+        }
+        if (from < 3) {
+          // Add transcription column to both tables
+          await m.addColumn(words, words.sourceTranscription);
+          await m.addColumn(
+            translationHistory,
+            translationHistory.sourceTranscription,
+          );
+        }
+        if (from < 4) {
+          // Rename transcription to targetTranscription and add sourceTranscription
+          await m.addColumn(words, words.targetTranscription);
+          await m.addColumn(
+            translationHistory,
+            translationHistory.targetTranscription,
+          );
         }
       },
       beforeOpen: (details) async {
@@ -76,10 +96,45 @@ class AppDatabase extends _$AppDatabase {
               translation TEXT NOT NULL,
               source_lang TEXT NOT NULL,
               target_lang TEXT NOT NULL,
+              source_transcription TEXT,
+              target_transcription TEXT,
               created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
               saved INTEGER NOT NULL DEFAULT 0
             )
           ''');
+        }
+
+        // Add columns if they don't exist
+        try {
+          await customStatement(
+            'ALTER TABLE words ADD COLUMN source_transcription TEXT',
+          );
+        } catch (e) {
+          // Column already exists
+        }
+
+        try {
+          await customStatement(
+            'ALTER TABLE words ADD COLUMN target_transcription TEXT',
+          );
+        } catch (e) {
+          // Column already exists
+        }
+
+        try {
+          await customStatement(
+            'ALTER TABLE translation_history ADD COLUMN source_transcription TEXT',
+          );
+        } catch (e) {
+          // Column already exists
+        }
+
+        try {
+          await customStatement(
+            'ALTER TABLE translation_history ADD COLUMN target_transcription TEXT',
+          );
+        } catch (e) {
+          // Column already exists
         }
       },
     );

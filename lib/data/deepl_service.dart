@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../services/phonetic_service.dart';
 
 class DeepLService {
   final String apiKey;
@@ -32,11 +33,40 @@ class DeepLService {
     final data = json.decode(response.body);
     final translation = data['translations'][0]['text'] as String;
 
+    // Try to get phonetic transcription for BOTH source and target
+    // Only for single words (no spaces, reasonable length)
+    String? sourceTranscription;
+    String? targetTranscription;
+
+    if (!text.contains(' ') && text.length < 30) {
+      try {
+        sourceTranscription = await PhoneticService.getPhonetic(
+          text,
+          sourceLang,
+        );
+      } catch (e) {
+        // Transcription is optional, continue without it
+      }
+    }
+
+    if (!translation.contains(' ') && translation.length < 30) {
+      try {
+        targetTranscription = await PhoneticService.getPhonetic(
+          translation,
+          targetLang,
+        );
+      } catch (e) {
+        // Transcription is optional, continue without it
+      }
+    }
+
     return TranslationResult(
       original: text,
       translation: translation,
       sourceLang: sourceLang,
       targetLang: targetLang,
+      sourceTranscription: sourceTranscription,
+      targetTranscription: targetTranscription,
     );
   }
 
@@ -47,13 +77,11 @@ class DeepLService {
     // Simple example: translate a generic sentence
     // In production, you might use an LLM API for better examples
     final examplePrompt = 'Use "$word" in a simple sentence.';
-
     final response = await translate(
       text: examplePrompt,
       sourceLang: 'EN',
       targetLang: targetLang,
     );
-
     return response.translation;
   }
 
@@ -79,11 +107,15 @@ class TranslationResult {
   final String translation;
   final String sourceLang;
   final String targetLang;
+  final String? sourceTranscription;
+  final String? targetTranscription;
 
   TranslationResult({
     required this.original,
     required this.translation,
     required this.sourceLang,
     required this.targetLang,
+    this.sourceTranscription,
+    this.targetTranscription,
   });
 }
