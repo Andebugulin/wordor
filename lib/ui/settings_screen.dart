@@ -30,6 +30,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _loadSettings();
   }
 
+  /// Load notification and AI provider settings from storage
   Future<void> _loadSettings() async {
     final enabled = await NotificationService.areNotificationsEnabled();
     final savedTime = await NotificationService.getSavedNotificationTime();
@@ -39,23 +40,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final storage = ref.read(apiKeyStorageProvider);
     final savedModel = await storage.getHuggingFaceModel();
 
-    setState(() {
-      _notificationsEnabled = enabled;
-      _selectedAIProvider = providerName == 'gemini'
-          ? AIProvider.gemini
-          : AIProvider.huggingface;
-      _selectedHFModel = savedModel;
-      if (savedTime != null) {
-        final hour = savedTime['hour']!;
-        final minute = savedTime['minute']!;
-        _notificationTime = TimeOfDay(
-          hour: hour,
-          minute: minute,
-        ).format(context);
-      }
-    });
+    if (mounted) {
+      setState(() {
+        _notificationsEnabled = enabled;
+        _selectedAIProvider = providerName == 'gemini'
+            ? AIProvider.gemini
+            : AIProvider.huggingface;
+        _selectedHFModel = savedModel;
+        if (savedTime != null) {
+          final hour = savedTime['hour']!;
+          final minute = savedTime['minute']!;
+          _notificationTime = TimeOfDay(
+            hour: hour,
+            minute: minute,
+          ).format(context);
+        } else {
+          _notificationTime = 'Not set';
+        }
+      });
+    }
   }
 
+  /// Save the selected AI provider to preferences
   Future<void> _saveAIProvider(AIProvider provider) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
@@ -66,15 +72,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(aiProviderPreferenceProvider);
     ref.invalidate(aiHintServiceProvider);
 
-    setState(() {
-      _selectedAIProvider = provider;
-    });
+    if (mounted) {
+      setState(() {
+        _selectedAIProvider = provider;
+      });
+    }
   }
 
+  /// Save the selected HuggingFace model to storage
   Future<void> _saveHFModel(String modelId) async {
     final storage = ref.read(apiKeyStorageProvider);
     await storage.saveHuggingFaceModel(modelId);
-    setState(() => _selectedHFModel = modelId);
+
+    if (mounted) {
+      setState(() => _selectedHFModel = modelId);
+    }
+
     ref.invalidate(huggingfaceModelProvider);
     ref.invalidate(aiHintServiceProvider);
 
@@ -90,6 +103,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// Check if the currently selected AI provider has an API key configured
   bool _hasCurrentAIKey() {
     if (_selectedAIProvider == AIProvider.huggingface) {
       final hfKeyAsync = ref.read(huggingfaceApiKeyProvider);
@@ -100,6 +114,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// Launch a URL in the system browser
   Future<void> _launchURL(String url) async {
     final uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -338,10 +353,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           value: _notificationsEnabled,
                           onChanged: (value) async {
                             if (value) {
+                              // User wants to enable notifications - show time picker
                               await _showTimePickerDialog(context);
+                              // Reload state after time picker closes to ensure UI is synced
+                              await _loadSettings();
                             } else {
+                              // User wants to disable notifications
                               await NotificationService.cancelDailyNotification();
-                              setState(() => _notificationsEnabled = false);
+                              setState(() {
+                                _notificationsEnabled = false;
+                                _notificationTime = 'Not set';
+                              });
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -361,33 +383,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       icon: Icons.schedule_outlined,
                       title: 'Change Reminder Time',
                       subtitle: 'Currently set to $_notificationTime',
-                      onTap: () => _showTimePickerDialog(context),
+                      onTap: () async {
+                        await _showTimePickerDialog(context);
+                        await _loadSettings();
+                      },
                     ),
                   ],
-                  // const SizedBox(height: 32),
-                  // Padding(
-                  //   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  //   child: Text(
-                  //     'Debug & Testing',
-                  //     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  //       color: Theme.of(context).colorScheme.primary,
-                  //     ),
-                  //   ),
-                  // ),
-                  // const SizedBox(height: 8),
-                  // _SettingsTile(
-                  //   icon: Icons.notifications_active,
-                  //   title: 'Test Notification',
-                  //   subtitle: 'Send a test notification now',
-                  //   onTap: () => _sendTestNotification(context, ref),
-                  // ),
-                  // const SizedBox(height: 8),
-                  // _SettingsTile(
-                  //   icon: Icons.fast_forward,
-                  //   title: 'Make All Words Due',
-                  //   subtitle: 'Test recall immediately',
-                  //   onTap: () => _makeAllWordsDue(context, ref),
-                  // ),
                   const SizedBox(height: 32),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -437,7 +438,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               ),
                         ),
                         const SizedBox(height: 12),
-                        // GitHub Link with Stars
                         githubStarsAsync.when(
                           data: (stars) => _GitHubLinkTile(
                             stars: stars,
@@ -459,7 +459,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        // LinkedIn Link
                         _SocialLinkTile(
                           icon: Icons.work_outline,
                           title: 'LinkedIn',
@@ -943,6 +942,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  /// Show time picker dialog and update notification schedule
+  /// This method properly updates the UI state after scheduling
   Future<void> _showTimePickerDialog(BuildContext context) async {
     final savedTime = await NotificationService.getSavedNotificationTime();
     final initialTime = savedTime != null
@@ -954,66 +955,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       initialTime: initialTime,
     );
 
-    if (time != null) {
-      await NotificationService.scheduleDailyNotification(
-        hour: time.hour,
-        minute: time.minute,
-      );
-      await _loadSettings();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Daily reminder set for ${time.format(context)}'),
-          ),
+    if (time != null && context.mounted) {
+      try {
+        // Schedule the notification
+        await NotificationService.scheduleDailyNotification(
+          hour: time.hour,
+          minute: time.minute,
         );
-      }
-    }
-  }
 
-  Future<void> _sendTestNotification(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final db = ref.read(databaseProvider);
-    final count = await db.getDueWordCount();
-    await NotificationService.showImmediateNotification(count > 0 ? count : 1);
-    if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Test notification sent')));
-    }
-  }
+        // Update the UI state to reflect the change
+        setState(() {
+          _notificationsEnabled = true;
+          _notificationTime = time.format(context);
+        });
 
-  Future<void> _makeAllWordsDue(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Make All Words Due?'),
-        content: const Text(
-          'This will make all saved words available for review immediately.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Make Due'),
-          ),
-        ],
-      ),
-    );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Daily reminder set for ${time.format(context)}'),
+            ),
+          );
+        }
+      } catch (e) {
+        // If scheduling fails, update UI to show disabled state
+        setState(() {
+          _notificationsEnabled = false;
+          _notificationTime = 'Not set';
+        });
 
-    if (confirmed == true) {
-      final db = ref.read(databaseProvider);
-      await db.makeAllWordsDueNow();
-      ref.invalidate(dueWordsProvider);
-      ref.invalidate(dueWordCountProvider);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('All words are now due for review')),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to schedule notification: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
       }
     }
   }
@@ -1136,7 +1113,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
   final VoidCallback onTap;
   final bool hasKey;
   final bool isActive;
-  final String? subtitleUrl; // Add this parameter
+  final String? subtitleUrl;
 
   const _SettingsTileWithStatus({
     required this.icon,
@@ -1145,7 +1122,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
     required this.onTap,
     required this.hasKey,
     this.isActive = true,
-    this.subtitleUrl, // Add this
+    this.subtitleUrl,
   });
 
   @override
@@ -1212,7 +1189,6 @@ class _SettingsTileWithStatus extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    // Modified subtitle to be clickable if URL provided
                     subtitleUrl != null
                         ? GestureDetector(
                             onTap: () async {
@@ -1288,7 +1264,6 @@ class _GitHubLinkTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
           child: Row(
             children: [
-              // GitHub icon
               Container(
                 padding: const EdgeInsets.all(2),
                 child: FaIcon(
@@ -1317,7 +1292,6 @@ class _GitHubLinkTile extends StatelessWidget {
                   ],
                 ),
               ),
-              // Star count badge
               if (stars != null && stars! > 0) ...[
                 Container(
                   padding: const EdgeInsets.symmetric(

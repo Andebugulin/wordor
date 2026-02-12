@@ -14,7 +14,7 @@ class NotificationService {
 
   static Future<void> initialize() async {
     try {
-      print('🔔 Initializing notification service...');
+      print('Initializing notification service...');
       tz.initializeTimeZones();
 
       const androidSettings = AndroidInitializationSettings(
@@ -34,33 +34,33 @@ class NotificationService {
       final initialized = await _notifications.initialize(
         initSettings,
         onDidReceiveNotificationResponse: (details) {
-          print('✅ Notification tapped: ${details.payload}');
+          print('Notification tapped: ${details.payload}');
         },
       );
 
-      print('🔔 Notification plugin initialized: $initialized');
+      print('Notification plugin initialized: $initialized');
 
       // Initialize background notification service
       await BackgroundNotificationService.initialize();
-      print('🔔 Background service initialized');
+      print('Background service initialized');
 
       // Check if notifications are enabled and restore saved time
       final prefs = await SharedPreferences.getInstance();
       final isEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
 
-      print('🔔 Notifications enabled: $isEnabled');
+      print('Notifications enabled: $isEnabled');
 
       if (isEnabled) {
         final hour = prefs.getInt(_hourKey);
         final minute = prefs.getInt(_minuteKey);
 
         if (hour != null && minute != null) {
-          print('🔔 Restoring notification time: $hour:$minute');
+          print('Restoring notification time: $hour:$minute');
           await scheduleDailyNotification(hour: hour, minute: minute);
         }
       }
     } catch (e, stack) {
-      print('❌ Error initializing notifications: $e');
+      print('Error initializing notifications: $e');
       print('Stack trace: $stack');
     }
   }
@@ -74,19 +74,19 @@ class NotificationService {
 
       if (androidImplementation != null) {
         final granted = await androidImplementation.areNotificationsEnabled();
-        print('🔔 Android notifications enabled: $granted');
+        print('Android notifications enabled: $granted');
         return granted ?? false;
       }
       return false;
     } catch (e) {
-      print('❌ Error checking permissions: $e');
+      print('Error checking permissions: $e');
       return false;
     }
   }
 
   static Future<void> requestPermissions() async {
     try {
-      print('🔔 Requesting notification permissions...');
+      print('Requesting notification permissions...');
 
       final androidImplementation = _notifications
           .resolvePlatformSpecificImplementation<
@@ -96,11 +96,11 @@ class NotificationService {
       if (androidImplementation != null) {
         final notifResult = await androidImplementation
             .requestNotificationsPermission();
-        print('🔔 Notification permission result: $notifResult');
+        print('Notification permission result: $notifResult');
 
         final alarmResult = await androidImplementation
             .requestExactAlarmsPermission();
-        print('🔔 Exact alarm permission result: $alarmResult');
+        print('Exact alarm permission result: $alarmResult');
       }
 
       final iosImplementation = _notifications
@@ -114,10 +114,10 @@ class NotificationService {
           badge: true,
           sound: true,
         );
-        print('🔔 iOS permissions result: $result');
+        print('iOS permissions result: $result');
       }
     } catch (e, stack) {
-      print('❌ Error requesting permissions: $e');
+      print('Error requesting permissions: $e');
       print('Stack trace: $stack');
     }
   }
@@ -127,28 +127,29 @@ class NotificationService {
     required int minute,
   }) async {
     try {
-      print('🔔 Scheduling daily notification for $hour:$minute');
+      print('Scheduling daily notification for $hour:$minute');
 
       // Save the time and enable notifications
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_hourKey, hour);
       await prefs.setInt(_minuteKey, minute);
       await prefs.setBool(_notificationEnabledKey, true);
-      print('🔔 Saved notification settings');
+      print('Saved notification settings');
 
       // Cancel any existing notifications first
       await _notifications.cancel(0);
-      print('🔔 Cancelled existing notifications');
+      print('Cancelled existing notifications');
 
       final scheduledDate = _nextInstanceOfTime(hour, minute);
 
-      print('🔔 Scheduling notification for: $scheduledDate');
-      print('🔔 Current time: ${tz.TZDateTime.now(tz.local)}');
+      print('Scheduling notification for: $scheduledDate');
+      print('Current time: ${tz.TZDateTime.now(tz.local)}');
 
+      // Schedule the notification using exact timing with permission to wake device
       await _notifications.zonedSchedule(
         0,
         'Word Recall',
-        'Time to review your words! 📚',
+        'Time to review your words',
         scheduledDate,
         const NotificationDetails(
           android: AndroidNotificationDetails(
@@ -175,17 +176,17 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time,
       );
 
-      print('✅ Daily notification scheduled successfully!');
+      print('Daily notification scheduled successfully!');
 
       // Schedule background checks
       try {
         await BackgroundNotificationService.scheduleBackgroundCheck();
-        print('✅ Background check scheduled');
+        print('Background check scheduled');
       } catch (e) {
-        print('⚠️ Error scheduling background check: $e');
+        print('Error scheduling background check: $e');
       }
     } catch (e, stack) {
-      print('❌ Error scheduling daily notification: $e');
+      print('Error scheduling daily notification: $e');
       print('Stack trace: $stack');
       rethrow;
     }
@@ -202,7 +203,7 @@ class NotificationService {
       }
       return null;
     } catch (e) {
-      print('❌ Error getting saved notification time: $e');
+      print('Error getting saved notification time: $e');
       return null;
     }
   }
@@ -212,28 +213,28 @@ class NotificationService {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getBool(_notificationEnabledKey) ?? false;
     } catch (e) {
-      print('❌ Error checking notification status: $e');
+      print('Error checking notification status: $e');
       return false;
     }
   }
 
   static Future<void> showImmediateNotification(int dueCount) async {
     try {
-      print('🔔 Attempting to show immediate notification for $dueCount words');
+      print('Attempting to show immediate notification for $dueCount words');
 
       // Check permissions first
       final hasPermission = await checkPermissions();
-      print('🔔 Has notification permission: $hasPermission');
+      print('Has notification permission: $hasPermission');
 
       if (!hasPermission) {
-        print('⚠️ No notification permission - requesting...');
+        print('No notification permission - requesting...');
         await requestPermissions();
       }
 
       await _notifications.show(
         1,
         'Word Recall',
-        '$dueCount ${dueCount == 1 ? 'word' : 'words'} waiting for review! 📖',
+        '$dueCount ${dueCount == 1 ? 'word' : 'words'} waiting for review',
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'immediate_recall',
@@ -256,9 +257,9 @@ class NotificationService {
         ),
       );
 
-      print('✅ Immediate notification sent!');
+      print('Immediate notification sent!');
     } catch (e, stack) {
-      print('❌ Error showing immediate notification: $e');
+      print('Error showing immediate notification: $e');
       print('Stack trace: $stack');
     }
   }
@@ -271,7 +272,7 @@ class NotificationService {
 
   static Future<void> cancelAllNotifications() async {
     try {
-      print('🔔 Cancelling all notifications');
+      print('Cancelling all notifications');
       await _notifications.cancelAll();
 
       // Disable notifications in preferences
@@ -281,20 +282,20 @@ class NotificationService {
       // Cancel background checks
       try {
         await BackgroundNotificationService.cancelBackgroundCheck();
-        print('✅ Background check cancelled');
+        print('Background check cancelled');
       } catch (e) {
-        print('⚠️ Error canceling background check: $e');
+        print('Error canceling background check: $e');
       }
 
-      print('✅ All notifications cancelled');
+      print('All notifications cancelled');
     } catch (e) {
-      print('❌ Error canceling notifications: $e');
+      print('Error canceling notifications: $e');
     }
   }
 
   static Future<void> cancelDailyNotification() async {
     try {
-      print('🔔 Cancelling daily notification');
+      print('Cancelling daily notification');
       await _notifications.cancel(0);
 
       // Disable notifications but keep the time saved
@@ -305,12 +306,12 @@ class NotificationService {
       try {
         await BackgroundNotificationService.cancelBackgroundCheck();
       } catch (e) {
-        print('⚠️ Error canceling background check: $e');
+        print('Error canceling background check: $e');
       }
 
-      print('✅ Daily notification cancelled');
+      print('Daily notification cancelled');
     } catch (e) {
-      print('❌ Error canceling daily notification: $e');
+      print('Error canceling daily notification: $e');
     }
   }
 
@@ -334,36 +335,36 @@ class NotificationService {
 
   static Future<void> checkAndNotifyDueWords(int dueCount) async {
     try {
-      print('🔔 Checking due words: $dueCount');
+      print('Checking due words: $dueCount');
 
       final prefs = await SharedPreferences.getInstance();
       final isEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
 
-      print('🔔 Notifications enabled: $isEnabled');
+      print('Notifications enabled: $isEnabled');
 
       if (isEnabled && dueCount > 0) {
         final lastNotificationDate = prefs.getString('last_due_notification');
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
 
-        print('🔔 Last notification: $lastNotificationDate');
-        print('🔔 Today: ${today.toIso8601String().split('T')[0]}');
+        print('Last notification: $lastNotificationDate');
+        print('Today: ${today.toIso8601String().split('T')[0]}');
 
         if (lastNotificationDate == null ||
             lastNotificationDate != today.toIso8601String().split('T')[0]) {
-          print('🔔 Sending due words notification...');
+          print('Sending due words notification...');
           await showDueWordsNotification(dueCount);
           await prefs.setString(
             'last_due_notification',
             today.toIso8601String().split('T')[0],
           );
-          print('✅ Due words notification sent');
+          print('Due words notification sent');
         } else {
-          print('ℹ️ Already notified today');
+          print('Already notified today');
         }
       }
     } catch (e, stack) {
-      print('❌ Error checking and notifying due words: $e');
+      print('Error checking and notifying due words: $e');
       print('Stack trace: $stack');
     }
   }
