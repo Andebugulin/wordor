@@ -20,7 +20,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _notificationsEnabled = false;
-  String _notificationTime = 'Not set';
+  List<ReminderTime> _reminders = [];
   AIProvider _selectedAIProvider = AIProvider.huggingface;
   String? _selectedHFModel;
 
@@ -33,7 +33,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   /// Load notification and AI provider settings from storage
   Future<void> _loadSettings() async {
     final enabled = await NotificationService.areNotificationsEnabled();
-    final savedTime = await NotificationService.getSavedNotificationTime();
+    final reminders = await NotificationService.getReminders();
     final prefs = await SharedPreferences.getInstance();
     final providerName = prefs.getString('ai_provider') ?? 'huggingface';
 
@@ -43,20 +43,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) {
       setState(() {
         _notificationsEnabled = enabled;
+        _reminders = reminders;
         _selectedAIProvider = providerName == 'gemini'
             ? AIProvider.gemini
             : AIProvider.huggingface;
         _selectedHFModel = savedModel;
-        if (savedTime != null) {
-          final hour = savedTime['hour']!;
-          final minute = savedTime['minute']!;
-          _notificationTime = TimeOfDay(
-            hour: hour,
-            minute: minute,
-          ).format(context);
-        } else {
-          _notificationTime = 'Not set';
-        }
       });
     }
   }
@@ -126,6 +117,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  String _formatReminder(ReminderTime r) {
+    final tod = TimeOfDay(hour: r.hour, minute: r.minute);
+    return tod.format(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final deeplKeyAsync = ref.watch(apiKeyProvider);
@@ -140,6 +136,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final hasHFKey = hfKeyAsync.value != null && hfKeyAsync.value!.isNotEmpty;
 
     final githubStarsAsync = ref.watch(githubStarsProvider);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -188,7 +186,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _SettingsTile(
                     icon: Icons.library_books_outlined,
                     title: 'Saved Words',
-                    subtitle: 'View and manage your words',
+                    subtitle: 'View, manage, import & export',
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -211,8 +209,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
                       'AI Hints (Optional)',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.primary,
                       ),
                     ),
                   ),
@@ -220,7 +218,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
+                      color: colors.surface,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
@@ -228,8 +226,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       children: [
                         Text(
                           'AI Provider',
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         RadioListTile<AIProvider>(
@@ -296,21 +295,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ? 'https://aistudio.google.com/api-keys'
                         : null,
                   ),
+
+                  // ── Notifications ─────────────────────────────────
                   const SizedBox(height: 32),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
                       'Notifications',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.primary,
                       ),
                     ),
                   ),
                   const SizedBox(height: 8),
+
+                  // Master switch
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
+                      color: colors.surface,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
@@ -318,14 +321,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withOpacity(0.1),
+                            color: colors.primary.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Icon(
                             Icons.notifications_outlined,
-                            color: Theme.of(context).colorScheme.primary,
+                            color: colors.primary,
                             size: 24,
                           ),
                         ),
@@ -336,15 +337,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             children: [
                               Text(
                                 'Daily Reminders',
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                _notificationsEnabled
-                                    ? 'Enabled at $_notificationTime'
+                                _notificationsEnabled && _reminders.isNotEmpty
+                                    ? '${_reminders.length} ${_reminders.length == 1 ? "reminder" : "reminders"} set'
                                     : 'Get reminded to review words',
-                                style: Theme.of(context).textTheme.bodyMedium,
+                                style: theme.textTheme.bodyMedium,
                               ),
                             ],
                           ),
@@ -353,17 +355,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           value: _notificationsEnabled,
                           onChanged: (value) async {
                             if (value) {
-                              // User wants to enable notifications - show time picker
-                              await _showTimePickerDialog(context);
-                              // Reload state after time picker closes to ensure UI is synced
-                              await _loadSettings();
+                              if (_reminders.isEmpty) {
+                                // No reminders yet — show picker to add one
+                                await _addNewReminder();
+                              } else {
+                                // Re-enable existing reminders
+                                await NotificationService.enableNotifications();
+                                setState(() => _notificationsEnabled = true);
+                              }
                             } else {
-                              // User wants to disable notifications
-                              await NotificationService.cancelDailyNotification();
-                              setState(() {
-                                _notificationsEnabled = false;
-                                _notificationTime = 'Not set';
-                              });
+                              await NotificationService.disableNotifications();
+                              setState(() => _notificationsEnabled = false);
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -377,25 +379,82 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ],
                     ),
                   ),
-                  if (_notificationsEnabled) ...[
+
+                  // List of configured reminders
+                  if (_notificationsEnabled && _reminders.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    _SettingsTile(
-                      icon: Icons.schedule_outlined,
-                      title: 'Change Reminder Time',
-                      subtitle: 'Currently set to $_notificationTime',
-                      onTap: () async {
-                        await _showTimePickerDialog(context);
-                        await _loadSettings();
-                      },
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        children: [
+                          for (int i = 0; i < _reminders.length; i++)
+                            ListTile(
+                              leading: Icon(
+                                Icons.schedule_outlined,
+                                color: colors.primary,
+                              ),
+                              title: Text(
+                                _formatReminder(_reminders[i]),
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      size: 20,
+                                    ),
+                                    onPressed: () => _editReminder(i),
+                                    tooltip: 'Change time',
+                                  ),
+                                  if (_reminders.length > 1)
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.delete_outline,
+                                        size: 20,
+                                        color: colors.error,
+                                      ),
+                                      onPressed: () => _removeReminder(i),
+                                      tooltip: 'Remove',
+                                    ),
+                                ],
+                              ),
+                            ),
+                          if (_reminders.length < 5)
+                            ListTile(
+                              leading: Icon(
+                                Icons.add_alarm_outlined,
+                                color: colors.primary.withOpacity(0.6),
+                              ),
+                              title: Text(
+                                'Add another reminder',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: colors.primary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              onTap: _addNewReminder,
+                            ),
+                        ],
+                      ),
                     ),
                   ],
+
+                  // ── Danger Zone ───────────────────────────────────
                   const SizedBox(height: 32),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
                       'Danger Zone',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.error,
                       ),
                     ),
                   ),
@@ -413,29 +472,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Wordor',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
+                        Text('Wordor', style: theme.textTheme.bodyMedium),
                         const SizedBox(height: 4),
                         Text(
-                          'Version 1.0.0',
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
-                              ),
+                          'Version 1.1.0',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colors.onSurfaceVariant.withOpacity(0.5),
+                          ),
                         ),
                         const SizedBox(height: 24),
                         Text(
                           'Connect',
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         githubStarsAsync.when(
@@ -479,6 +529,87 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
   }
+
+  // ── Notification helpers ────────────────────────────────────────
+
+  Future<void> _addNewReminder() async {
+    final time = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 20, minute: 0),
+    );
+
+    if (time != null && mounted) {
+      try {
+        await NotificationService.addReminder(
+          ReminderTime(hour: time.hour, minute: time.minute),
+        );
+        await _loadSettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Reminder set for ${time.format(context)}')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to set reminder: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _editReminder(int index) async {
+    final current = _reminders[index];
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: current.hour, minute: current.minute),
+    );
+
+    if (time != null && mounted) {
+      try {
+        await NotificationService.updateReminder(
+          current,
+          ReminderTime(hour: time.hour, minute: time.minute),
+        );
+        await _loadSettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Reminder updated to ${time.format(context)}'),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to update reminder: $e'),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _removeReminder(int index) async {
+    final reminder = _reminders[index];
+    await NotificationService.removeReminder(reminder);
+    await _loadSettings();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reminder at ${_formatReminder(reminder)} removed'),
+        ),
+      );
+    }
+  }
+
+  // ── Model picker ──────────────────────────────────────────────────
 
   String _getModelName(String? modelId) {
     if (modelId == null) {
@@ -633,6 +764,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  // ── API key dialogs ───────────────────────────────────────────────
+
   Future<void> _showDeepLApiKeyDialog(
     BuildContext context,
     WidgetRef ref,
@@ -642,7 +775,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final existingKey = await storage.getApiKey();
 
     if (existingKey != null && existingKey.isNotEmpty) {
-      controller.text = '•' * 20;
+      controller.text = '\u2022' * 20;
     }
 
     final result = await showDialog<String>(
@@ -702,7 +835,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    if (result != null && result.isNotEmpty && result != '•' * 20) {
+    if (result != null && result.isNotEmpty && result != '\u2022' * 20) {
       await storage.saveApiKey(result);
       ref.invalidate(apiKeyProvider);
       if (context.mounted) {
@@ -722,7 +855,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final existingKey = await storage.getHuggingFaceApiKey();
 
     if (existingKey != null && existingKey.isNotEmpty) {
-      controller.text = '•' * 20;
+      controller.text = '\u2022' * 20;
     }
 
     final result = await showDialog<String>(
@@ -760,8 +893,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
               ),
             GestureDetector(
-              onTap: () =>
-                  _launchURL('https://www.deepl.com/en/your-account/keys'),
+              onTap: () => _launchURL('https://huggingface.co/settings/tokens'),
               child: Text(
                 'Get free key here',
                 style: TextStyle(
@@ -807,7 +939,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    if (result != null && result.isNotEmpty && result != '•' * 20) {
+    if (result != null && result.isNotEmpty && result != '\u2022' * 20) {
       final storage = ref.read(apiKeyStorageProvider);
 
       if (context.mounted) {
@@ -866,7 +998,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final existingKey = await storage.getGeminiApiKey();
 
     if (existingKey != null && existingKey.isNotEmpty) {
-      controller.text = '•' * 20;
+      controller.text = '\u2022' * 20;
     }
 
     final result = await showDialog<String>(
@@ -929,7 +1061,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
 
-    if (result != null && result.isNotEmpty && result != '•' * 20) {
+    if (result != null && result.isNotEmpty && result != '\u2022' * 20) {
       final storage = ref.read(apiKeyStorageProvider);
       await storage.saveGeminiApiKey(result);
       ref.invalidate(geminiApiKeyProvider);
@@ -938,59 +1070,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Gemini API key saved!')));
-      }
-    }
-  }
-
-  /// Show time picker dialog and update notification schedule
-  /// This method properly updates the UI state after scheduling
-  Future<void> _showTimePickerDialog(BuildContext context) async {
-    final savedTime = await NotificationService.getSavedNotificationTime();
-    final initialTime = savedTime != null
-        ? TimeOfDay(hour: savedTime['hour']!, minute: savedTime['minute']!)
-        : const TimeOfDay(hour: 20, minute: 0);
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: initialTime,
-    );
-
-    if (time != null && context.mounted) {
-      try {
-        // Schedule the notification
-        await NotificationService.scheduleDailyNotification(
-          hour: time.hour,
-          minute: time.minute,
-        );
-
-        // Update the UI state to reflect the change
-        setState(() {
-          _notificationsEnabled = true;
-          _notificationTime = time.format(context);
-        });
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Daily reminder set for ${time.format(context)}'),
-            ),
-          );
-        }
-      } catch (e) {
-        // If scheduling fails, update UI to show disabled state
-        setState(() {
-          _notificationsEnabled = false;
-          _notificationTime = 'Not set';
-        });
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to schedule notification: $e'),
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-          );
-        }
       }
     }
   }
@@ -1033,6 +1112,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 }
+
+// ── Reusable widgets ────────────────────────────────────────────────
 
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
@@ -1127,12 +1208,14 @@ class _SettingsTileWithStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = hasKey && isActive
-        ? const Color(0xFF4ADEAA)
-        : const Color(0xFFFF6B7A);
+    final colors = Theme.of(context).colorScheme;
+    // Match translate_screen indicator colors for consistency
+    const green = Color(0xFF4ADEAA);
+    const red = Color(0xFFFF6B7A);
+    final statusColor = hasKey && isActive ? green : red;
 
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onTap,
@@ -1147,16 +1230,10 @@ class _SettingsTileWithStatus extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primary.withOpacity(0.1),
+                      color: colors.primary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      icon,
-                      color: Theme.of(context).colorScheme.primary,
-                      size: 24,
-                    ),
+                    child: Icon(icon, color: colors.primary, size: 24),
                   ),
                   if (isActive)
                     Positioned(
@@ -1168,10 +1245,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: statusColor,
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.surface,
-                            width: 2,
-                          ),
+                          border: Border.all(color: colors.surface, width: 2),
                         ),
                       ),
                     ),
@@ -1204,9 +1278,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
                                   subtitle,
                                   style: Theme.of(context).textTheme.bodyMedium
                                       ?.copyWith(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
+                                        color: colors.primary,
                                         fontWeight: FontWeight.w500,
                                       ),
                                 ),
@@ -1214,7 +1286,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
                                 Icon(
                                   Icons.open_in_new,
                                   size: 14,
-                                  color: Theme.of(context).colorScheme.primary,
+                                  color: colors.primary,
                                 ),
                               ],
                             ),
@@ -1235,9 +1307,7 @@ class _SettingsTileWithStatus extends StatelessWidget {
               ),
               Icon(
                 Icons.chevron_right,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
+                color: colors.onSurfaceVariant.withOpacity(0.5),
               ),
             ],
           ),
@@ -1255,6 +1325,8 @@ class _GitHubLinkTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1269,7 +1341,7 @@ class _GitHubLinkTile extends StatelessWidget {
                 child: FaIcon(
                   FontAwesomeIcons.github,
                   size: 20,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: colors.primary,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1286,7 +1358,7 @@ class _GitHubLinkTile extends StatelessWidget {
                     Text(
                       'Source code',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -1299,30 +1371,22 @@ class _GitHubLinkTile extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primary.withOpacity(0.1),
+                    color: colors.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primary.withOpacity(0.2),
+                      color: colors.primary.withOpacity(0.2),
                       width: 1,
                     ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.star,
-                        size: 14,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
+                      Icon(Icons.star, size: 14, color: colors.primary),
                       const SizedBox(width: 4),
                       Text(
                         '$stars',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
+                          color: colors.primary,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1334,9 +1398,7 @@ class _GitHubLinkTile extends StatelessWidget {
               Icon(
                 Icons.open_in_new,
                 size: 16,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
+                color: colors.onSurfaceVariant.withOpacity(0.5),
               ),
             ],
           ),
@@ -1361,6 +1423,8 @@ class _SocialLinkTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1370,11 +1434,7 @@ class _SocialLinkTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
           child: Row(
             children: [
-              Icon(
-                icon,
-                size: 20,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+              Icon(icon, size: 20, color: colors.primary),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1389,7 +1449,7 @@ class _SocialLinkTile extends StatelessWidget {
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -1398,9 +1458,7 @@ class _SocialLinkTile extends StatelessWidget {
               Icon(
                 Icons.open_in_new,
                 size: 16,
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurfaceVariant.withOpacity(0.5),
+                color: colors.onSurfaceVariant.withOpacity(0.5),
               ),
             ],
           ),
@@ -1415,6 +1473,10 @@ class _KeyStatusIndicator extends StatelessWidget {
   final bool isActive;
   final String tooltip;
 
+  // Match translate_screen indicator colors for consistency
+  static const _green = Color(0xFF4ADEAA);
+  static const _red = Color(0xFFFF6B7A);
+
   const _KeyStatusIndicator({
     required this.icon,
     required this.isActive,
@@ -1423,21 +1485,17 @@ class _KeyStatusIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = isActive ? _green : _red;
+
     return Tooltip(
       message: tooltip,
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: isActive
-              ? const Color(0xFF4ADEAA).withOpacity(0.15)
-              : const Color(0xFFFF6B7A).withOpacity(0.15),
+          color: color.withOpacity(0.15),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Icon(
-          icon,
-          size: 14,
-          color: isActive ? const Color(0xFF4ADEAA) : const Color(0xFFFF6B7A),
-        ),
+        child: Icon(icon, size: 14, color: color),
       ),
     );
   }

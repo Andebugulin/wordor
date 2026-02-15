@@ -59,11 +59,9 @@ class AppDatabase extends _$AppDatabase {
       },
       onUpgrade: (Migrator m, int from, int to) async {
         if (from < 2) {
-          // Create translation_history table if it doesn't exist
           await m.createTable(translationHistory);
         }
         if (from < 3) {
-          // Add transcription column to both tables
           await m.addColumn(words, words.sourceTranscription);
           await m.addColumn(
             translationHistory,
@@ -71,7 +69,6 @@ class AppDatabase extends _$AppDatabase {
           );
         }
         if (from < 4) {
-          // Rename transcription to targetTranscription and add sourceTranscription
           await m.addColumn(words, words.targetTranscription);
           await m.addColumn(
             translationHistory,
@@ -80,10 +77,8 @@ class AppDatabase extends _$AppDatabase {
         }
       },
       beforeOpen: (details) async {
-        // Enable foreign keys
         await customStatement('PRAGMA foreign_keys = ON');
 
-        // Check if translation_history exists, if not create it
         final result = await customSelect(
           "SELECT name FROM sqlite_master WHERE type='table' AND name='translation_history'",
         ).get();
@@ -104,43 +99,24 @@ class AppDatabase extends _$AppDatabase {
           ''');
         }
 
-        // Add columns if they don't exist
-        try {
-          await customStatement(
-            'ALTER TABLE words ADD COLUMN source_transcription TEXT',
-          );
-        } catch (e) {
-          // Column already exists
-        }
-
-        try {
-          await customStatement(
-            'ALTER TABLE words ADD COLUMN target_transcription TEXT',
-          );
-        } catch (e) {
-          // Column already exists
-        }
-
-        try {
-          await customStatement(
-            'ALTER TABLE translation_history ADD COLUMN source_transcription TEXT',
-          );
-        } catch (e) {
-          // Column already exists
-        }
-
-        try {
-          await customStatement(
-            'ALTER TABLE translation_history ADD COLUMN target_transcription TEXT',
-          );
-        } catch (e) {
-          // Column already exists
+        // Add columns if they don't exist (safe idempotent migration)
+        for (final stmt in [
+          'ALTER TABLE words ADD COLUMN source_transcription TEXT',
+          'ALTER TABLE words ADD COLUMN target_transcription TEXT',
+          'ALTER TABLE translation_history ADD COLUMN source_transcription TEXT',
+          'ALTER TABLE translation_history ADD COLUMN target_transcription TEXT',
+        ]) {
+          try {
+            await customStatement(stmt);
+          } catch (_) {}
         }
       },
     );
   }
 
-  // Get words due for review
+  // ── Core CRUD ──────────────────────────────────────────────────────
+
+  /// Get words due for review right now.
   Future<List<WordWithRecall>> getDueWords() async {
     final query = select(words).join([
       innerJoin(recalls, recalls.wordId.equalsExp(words.id)),
@@ -155,7 +131,7 @@ class AppDatabase extends _$AppDatabase {
     }).toList();
   }
 
-  // Add new word with initial recall
+  /// Add new word with initial recall (due in 1 day).
   Future<int> addWord(WordsCompanion word) async {
     return transaction(() async {
       final wordId = await into(words).insert(word);
@@ -171,7 +147,7 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  // Update recall after review
+  /// Update recall after review.
   Future<void> updateRecall(int recallId, bool success) async {
     final recall = await (select(
       recalls,
@@ -188,7 +164,7 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  // Get count of due words
+  /// Get count of due words.
   Future<int> getDueWordCount() async {
     final query = selectOnly(recalls)
       ..addColumns([recalls.id.count()])
@@ -198,12 +174,12 @@ class AppDatabase extends _$AppDatabase {
     return result.read(recalls.id.count()) ?? 0;
   }
 
-  // Add translation to history
+  // ── History ────────────────────────────────────────────────────────
+
   Future<void> addToHistory(TranslationHistoryCompanion history) async {
     await into(translationHistory).insert(history);
   }
 
-  // Get translation history
   Future<List<TranslationHistoryData>> getHistory({int limit = 50}) async {
     return (select(translationHistory)
           ..orderBy([(t) => OrderingTerm.desc(t.createdAt)])
@@ -211,7 +187,6 @@ class AppDatabase extends _$AppDatabase {
         .get();
   }
 
-  // Check if a word is saved for recall
   Future<bool> isWordSaved(String source, String translation) async {
     final result =
         await (select(words)
@@ -224,12 +199,12 @@ class AppDatabase extends _$AppDatabase {
     return result != null;
   }
 
-  // Clear history
   Future<void> clearHistory() async {
     await delete(translationHistory).go();
   }
 
-  // Get all saved words
+  // ── Library ────────────────────────────────────────────────────────
+
   Future<List<WordWithRecall>> getAllWords() async {
     final query = select(words).join([
       innerJoin(recalls, recalls.wordId.equalsExp(words.id)),
@@ -244,7 +219,6 @@ class AppDatabase extends _$AppDatabase {
     }).toList();
   }
 
-  // Search words
   Future<List<WordWithRecall>> searchWords(String query) async {
     final searchQuery =
         select(
@@ -264,18 +238,142 @@ class AppDatabase extends _$AppDatabase {
     }).toList();
   }
 
-  // Delete word
   Future<void> deleteWord(int wordId) async {
     await (delete(words)..where((w) => w.id.equals(wordId))).go();
   }
 
-  // Make all words due now (for testing)
   Future<void> makeAllWordsDueNow() async {
     await (update(recalls)).write(
       RecallsCompanion(
         nextReview: Value(DateTime.now().subtract(const Duration(hours: 1))),
       ),
     );
+  }
+
+  // ── Anki Import / Export ───────────────────────────────────────────
+
+  /// Export all saved words as CSV (compatible with Anki import).
+  ///
+  /// Format: `front,back,tags`
+  /// where tags = `lang:SOURCE-TARGET`
+  ///
+  /// This can be imported into Anki via File → Import → select .csv.
+  Future<String> exportToCsv() async {
+    final allWords = await getAllWords();
+    final buffer = StringBuffer();
+
+    for (final wr in allWords) {
+      final w = wr.word;
+      final front = _escapeCsv(w.source);
+      final back = _escapeCsv(w.translation);
+      final tags = 'lang:${w.sourceLang}-${w.targetLang}';
+      buffer.writeln('$front,$back,$tags');
+    }
+
+    return buffer.toString();
+  }
+
+  /// Import words from CSV text.
+  ///
+  /// Accepts `front,back` (2 columns) or `front,back,tags` (3+ columns).
+  /// Tags like `lang:FI-EN` are parsed for language pair; if absent,
+  /// [defaultSourceLang] and [defaultTargetLang] are used.
+  ///
+  /// Returns the number of words imported (duplicates are skipped).
+  Future<int> importFromCsv(
+    String csvContent, {
+    String defaultSourceLang = 'EN',
+    String defaultTargetLang = 'EN',
+  }) async {
+    final lines = csvContent
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty && !l.startsWith('#'))
+        .toList();
+
+    int imported = 0;
+
+    for (final line in lines) {
+      // Simple CSV parse: split on comma, but respect quoted fields
+      final parts = _parseCsvLine(line);
+      if (parts.length < 2) continue;
+
+      final front = parts[0].trim();
+      final back = parts[1].trim();
+
+      if (front.isEmpty || back.isEmpty) continue;
+
+      // Parse language from tags column if present
+      String sourceLang = defaultSourceLang;
+      String targetLang = defaultTargetLang;
+
+      if (parts.length >= 3) {
+        final tags = parts[2];
+        final langMatch = RegExp(r'lang:(\w+)-(\w+)').firstMatch(tags);
+        if (langMatch != null) {
+          sourceLang = langMatch.group(1)!.toUpperCase();
+          targetLang = langMatch.group(2)!.toUpperCase();
+        }
+      }
+
+      // Skip duplicates
+      final exists = await isWordSaved(front, back);
+      if (exists) continue;
+
+      await addWord(
+        WordsCompanion(
+          source: Value(front),
+          translation: Value(back),
+          sourceLang: Value(sourceLang),
+          targetLang: Value(targetLang),
+        ),
+      );
+      imported++;
+    }
+
+    return imported;
+  }
+
+  /// Escape a value for CSV: wrap in quotes if it contains comma, quote, or newline.
+  static String _escapeCsv(String s) {
+    if (s.contains(',') || s.contains('"') || s.contains('\n')) {
+      return '"${s.replaceAll('"', '""')}"';
+    }
+    return s;
+  }
+
+  /// Parse a single CSV line, respecting quoted fields.
+  static List<String> _parseCsvLine(String line) {
+    final result = <String>[];
+    final buffer = StringBuffer();
+    bool inQuotes = false;
+
+    for (int i = 0; i < line.length; i++) {
+      final c = line[i];
+      if (inQuotes) {
+        if (c == '"') {
+          if (i + 1 < line.length && line[i + 1] == '"') {
+            buffer.write('"');
+            i++; // skip escaped quote
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          buffer.write(c);
+        }
+      } else {
+        if (c == '"') {
+          inQuotes = true;
+        } else if (c == ',') {
+          result.add(buffer.toString());
+          buffer.clear();
+        } else {
+          buffer.write(c);
+        }
+      }
+    }
+    result.add(buffer.toString());
+    return result;
   }
 }
 

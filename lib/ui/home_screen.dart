@@ -4,7 +4,6 @@ import 'translate_screen.dart';
 import 'recall_screen.dart';
 import 'settings_screen.dart';
 import '../providers/app_providers.dart';
-import '../services/notification_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -23,7 +22,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.initState();
     _pageController = PageController(initialPage: _currentIndex);
     WidgetsBinding.instance.addObserver(this);
-    _checkDueWordsOnLaunch();
   }
 
   @override
@@ -36,30 +34,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Check for due words when app comes to foreground
-      _checkDueWordsOnLaunch();
+      // Refresh due word count when app comes to foreground
+      ref.invalidate(dueWordCountProvider);
+      if (_currentIndex == 1) {
+        ref.invalidate(dueWordsProvider);
+      }
     }
   }
 
-  Future<void> _checkDueWordsOnLaunch() async {
-    // Wait a bit for the app to fully load
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (!mounted) return;
-
-    final dueCountAsync = ref.read(dueWordCountProvider);
-    dueCountAsync.when(
-      data: (count) async {
-        if (count > 0) {
-          await NotificationService.checkAndNotifyDueWords(count);
-        }
-      },
-      loading: () {},
-      error: (_, __) {},
-    );
-  }
-
   void _onPageChanged(int index) {
+    final previousIndex = _currentIndex;
     setState(() => _currentIndex = index);
+
+    // When switching TO the Recall tab, always refresh due words
+    if (index == 1 && previousIndex != 1) {
+      ref.invalidate(dueWordsProvider);
+      ref.invalidate(dueWordCountProvider);
+    }
   }
 
   void _onNavTap(int index) {
@@ -117,21 +108,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 data: (count) => count > 0
                     ? Badge(
                         label: Text('$count'),
-                        child: const Icon(Icons.notifications_outlined),
+                        child: const Icon(Icons.school_outlined),
                       )
-                    : const Icon(Icons.notifications_outlined),
-                loading: () => const Icon(Icons.notifications_outlined),
-                error: (_, __) => const Icon(Icons.notifications_outlined),
+                    : const Icon(Icons.school_outlined),
+                loading: () => const Icon(Icons.school_outlined),
+                error: (_, __) => const Icon(Icons.school_outlined),
               ),
               selectedIcon: dueCountAsync.when(
                 data: (count) => count > 0
                     ? Badge(
                         label: Text('$count'),
-                        child: const Icon(Icons.notifications),
+                        child: const Icon(Icons.school),
                       )
-                    : const Icon(Icons.notifications),
-                loading: () => const Icon(Icons.notifications),
-                error: (_, __) => const Icon(Icons.notifications),
+                    : const Icon(Icons.school),
+                loading: () => const Icon(Icons.school),
+                error: (_, __) => const Icon(Icons.school),
               ),
               label: 'Recall',
             ),

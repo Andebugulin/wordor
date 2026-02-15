@@ -1,6 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:drift/drift.dart' as drift;
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
 import '../data/database.dart';
 import '../providers/app_providers.dart';
 import '../services/tts_service.dart';
@@ -47,15 +51,12 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
     if (confirmed == true) {
       final db = ref.read(databaseProvider);
 
-      // Get the word details BEFORE deleting
       final word = await (db.select(
         db.words,
       )..where((w) => w.id.equals(wordId))).getSingle();
 
-      // Delete the word from words table (cascades to recalls)
       await db.deleteWord(wordId);
 
-      // Update translation_history to mark as not saved
       await (db.update(db.translationHistory)..where(
             (t) =>
                 t.source.equals(word.source) &
@@ -86,12 +87,231 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
     }
   }
 
+  // ── Anki Export (CSV) ────────────────────────────────────────────
+
+  Future<void> _exportCsv() async {
+    final db = ref.read(databaseProvider);
+    final csv = await db.exportToCsv();
+
+    if (csv.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('No words to export')));
+      }
+      return;
+    }
+
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File(path.join(dir.path, 'wordor_export.csv'));
+      await file.writeAsString(csv);
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Export Successful'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Saved to:\n${file.path}'),
+                const SizedBox(height: 16),
+                const Text(
+                  'To use in Anki:\n'
+                  '1. Copy the .csv file to your computer\n'
+                  '2. In Anki: File → Import\n'
+                  '3. Select the .csv file\n'
+                  '4. Map columns: Field 1 → Front, Field 2 → Back',
+                  style: TextStyle(fontSize: 13, height: 1.5),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: csv));
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('CSV copied to clipboard')),
+                  );
+                },
+                child: const Text('Copy CSV'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      // Fallback: copy to clipboard
+      await Clipboard.setData(ClipboardData(text: csv));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('CSV copied to clipboard')),
+        );
+      }
+    }
+  }
+
+  // ── Anki Import (CSV) ────────────────────────────────────────────
+
+  Future<void> _importCsv() async {
+    final controller = TextEditingController();
+    String sourceLang = 'EN';
+    String targetLang = 'EN';
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Import from CSV'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Paste your CSV content below.\n'
+                  'Format: front,back or front,back,tags',
+                  style: TextStyle(fontSize: 13, height: 1.5),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Source lang',
+                          hintText: 'e.g. FI',
+                          isDense: true,
+                        ),
+                        onChanged: (v) => sourceLang = v.toUpperCase(),
+                        controller: TextEditingController(text: sourceLang),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Target lang',
+                          hintText: 'e.g. EN',
+                          isDense: true,
+                        ),
+                        onChanged: (v) => targetLang = v.toUpperCase(),
+                        controller: TextEditingController(text: targetLang),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  maxLines: 8,
+                  decoration: const InputDecoration(
+                    hintText: 'Paste CSV content here...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (controller.text.trim().isEmpty) return;
+                Navigator.pop(ctx, {
+                  'content': controller.text,
+                  'sourceLang': sourceLang,
+                  'targetLang': targetLang,
+                });
+              },
+              child: const Text('Import'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result != null && mounted) {
+      final db = ref.read(databaseProvider);
+      final count = await db.importFromCsv(
+        result['content']!,
+        defaultSourceLang: result['sourceLang']!,
+        defaultTargetLang: result['targetLang']!,
+      );
+
+      ref.invalidate(dueWordCountProvider);
+      ref.invalidate(dueWordsProvider);
+      setState(() {});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              count > 0
+                  ? 'Imported $count ${count == 1 ? "word" : "words"}'
+                  : 'No new words to import (all duplicates)',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final db = ref.watch(databaseProvider);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Saved Words')),
+      appBar: AppBar(
+        title: const Text('Saved Words'),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              switch (value) {
+                case 'import':
+                  _importCsv();
+                  break;
+                case 'export':
+                  _exportCsv();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'import',
+                child: ListTile(
+                  leading: Icon(Icons.file_download_outlined),
+                  title: Text('Import CSV'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'export',
+                child: ListTile(
+                  leading: Icon(Icons.file_upload_outlined),
+                  title: Text('Export CSV'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Padding(
@@ -138,17 +358,23 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                               ? Icons.book_outlined
                               : Icons.search_off,
                           size: 64,
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurfaceVariant.withOpacity(0.3),
+                          color: colors.onSurfaceVariant.withOpacity(0.3),
                         ),
                         const SizedBox(height: 16),
                         Text(
                           _searchQuery.isEmpty
                               ? 'No saved words yet'
                               : 'No words found',
-                          style: Theme.of(context).textTheme.bodyMedium,
+                          style: theme.textTheme.bodyMedium,
                         ),
+                        if (_searchQuery.isEmpty) ...[
+                          const SizedBox(height: 24),
+                          OutlinedButton.icon(
+                            onPressed: _importCsv,
+                            icon: const Icon(Icons.file_download_outlined),
+                            label: const Text('Import CSV'),
+                          ),
+                        ],
                       ],
                     ),
                   );
@@ -168,13 +394,11 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                     return Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
+                        color: colors.surface,
                         borderRadius: BorderRadius.circular(16),
                         border: isDue
                             ? Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withOpacity(0.3),
+                                color: colors.primary.withOpacity(0.3),
                                 width: 2,
                               )
                             : null,
@@ -191,33 +415,26 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: isDue
-                                      ? Theme.of(
-                                          context,
-                                        ).colorScheme.primary.withOpacity(0.1)
-                                      : Theme.of(context).colorScheme.surface,
+                                      ? colors.primary.withOpacity(0.1)
+                                      : colors.surface,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
                                   _formatNextReview(recall.nextReview),
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: isDue
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.primary
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant,
-                                        fontWeight: isDue
-                                            ? FontWeight.w600
-                                            : FontWeight.w400,
-                                      ),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: isDue
+                                        ? colors.primary
+                                        : colors.onSurfaceVariant,
+                                    fontWeight: isDue
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                  ),
                                 ),
                               ),
                               const Spacer(),
                               Text(
                                 '${word.sourceLang} → ${word.targetLang}',
-                                style: Theme.of(context).textTheme.bodySmall,
+                                style: theme.textTheme.bodySmall,
                               ),
                               const SizedBox(width: 8),
                               IconButton(
@@ -236,8 +453,9 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                               Expanded(
                                 child: Text(
                                   word.source,
-                                  style: Theme.of(context).textTheme.bodyLarge
-                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                               IconButton(
@@ -261,7 +479,7 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                               Expanded(
                                 child: Text(
                                   word.translation,
-                                  style: Theme.of(context).textTheme.bodyMedium,
+                                  style: theme.textTheme.bodyMedium,
                                 ),
                               ),
                               IconButton(
@@ -283,13 +501,9 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                             const SizedBox(height: 8),
                             Text(
                               'Reviewed ${recall.reviewCount} ${recall.reviewCount == 1 ? 'time' : 'times'}',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant
-                                        .withOpacity(0.7),
-                                  ),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colors.onSurfaceVariant.withOpacity(0.7),
+                              ),
                             ),
                           ],
                         ],

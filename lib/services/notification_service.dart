@@ -1,20 +1,47 @@
+import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'background_notification_service.dart';
+
+/// A single scheduled reminder (hour + minute).
+class ReminderTime {
+  final int hour;
+  final int minute;
+
+  const ReminderTime({required this.hour, required this.minute});
+
+  Map<String, int> toJson() => {'hour': hour, 'minute': minute};
+
+  factory ReminderTime.fromJson(Map<String, dynamic> json) =>
+      ReminderTime(hour: json['hour'] as int, minute: json['minute'] as int);
+
+  String format24h() =>
+      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+
+  @override
+  bool operator ==(Object other) =>
+      other is ReminderTime && other.hour == hour && other.minute == minute;
+
+  @override
+  int get hashCode => hour * 60 + minute;
+}
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
-  static const String _hourKey = 'notification_hour';
-  static const String _minuteKey = 'notification_minute';
-  static const String _notificationEnabledKey = 'notification_enabled';
+  static const String _enabledKey = 'notification_enabled';
+  static const String _remindersKey = 'notification_reminders'; // JSON list
+
+  // Legacy keys for migration
+  static const String _legacyHourKey = 'notification_hour';
+  static const String _legacyMinuteKey = 'notification_minute';
+
+  // ── Initialization ────────────────────────────────────────────────
 
   static Future<void> initialize() async {
     try {
-      print('Initializing notification service...');
       tz.initializeTimeZones();
 
       const androidSettings = AndroidInitializationSettings(
@@ -31,123 +58,236 @@ class NotificationService {
         iOS: iosSettings,
       );
 
-      final initialized = await _notifications.initialize(
+      await _notifications.initialize(
         initSettings,
         onDidReceiveNotificationResponse: (details) {
-          print('Notification tapped: ${details.payload}');
+          // Handle notification tap (could navigate to recall screen)
         },
       );
 
-      print('Notification plugin initialized: $initialized');
+      // Migrate legacy single-time to new multi-time format
+      await _migrateLegacySettings();
 
-      // Initialize background notification service
-      await BackgroundNotificationService.initialize();
-      print('Background service initialized');
-
-      // Check if notifications are enabled and restore saved time
-      final prefs = await SharedPreferences.getInstance();
-      final isEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
-
-      print('Notifications enabled: $isEnabled');
-
-      if (isEnabled) {
-        final hour = prefs.getInt(_hourKey);
-        final minute = prefs.getInt(_minuteKey);
-
-        if (hour != null && minute != null) {
-          print('Restoring notification time: $hour:$minute');
-          await scheduleDailyNotification(hour: hour, minute: minute);
-        }
-      }
-    } catch (e, stack) {
+      // Restore scheduled notifications
+      await _restoreScheduledNotifications();
+    } catch (e) {
       print('Error initializing notifications: $e');
-      print('Stack trace: $stack');
     }
   }
 
+  /// Migrate old hour/minute prefs to the new reminders list.
+  static Future<void> _migrateLegacySettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final legacyHour = prefs.getInt(_legacyHourKey);
+    final legacyMinute = prefs.getInt(_legacyMinuteKey);
+
+    if (legacyHour != null && legacyMinute != null) {
+      final existing = await getReminders();
+      if (existing.isEmpty) {
+        await _saveReminders([
+          ReminderTime(hour: legacyHour, minute: legacyMinute),
+        ]);
+      }
+      // Clean up legacy keys
+      await prefs.remove(_legacyHourKey);
+      await prefs.remove(_legacyMinuteKey);
+    }
+  }
+
+  /// Re-schedule all saved reminders on cold start.
+  static Future<void> _restoreScheduledNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isEnabled = prefs.getBool(_enabledKey) ?? false;
+    if (!isEnabled) return;
+
+    final reminders = await getReminders();
+    await _scheduleAll(reminders);
+  }
+
+  // ── Permissions ───────────────────────────────────────────────────
+
   static Future<bool> checkPermissions() async {
     try {
-      final androidImplementation = _notifications
+      final androidImpl = _notifications
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >();
-
-      if (androidImplementation != null) {
-        final granted = await androidImplementation.areNotificationsEnabled();
-        print('Android notifications enabled: $granted');
-        return granted ?? false;
+      if (androidImpl != null) {
+        return await androidImpl.areNotificationsEnabled() ?? false;
       }
       return false;
-    } catch (e) {
-      print('Error checking permissions: $e');
+    } catch (_) {
       return false;
     }
   }
 
   static Future<void> requestPermissions() async {
     try {
-      print('Requesting notification permissions...');
-
-      final androidImplementation = _notifications
+      final androidImpl = _notifications
           .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin
           >();
-
-      if (androidImplementation != null) {
-        final notifResult = await androidImplementation
-            .requestNotificationsPermission();
-        print('Notification permission result: $notifResult');
-
-        final alarmResult = await androidImplementation
-            .requestExactAlarmsPermission();
-        print('Exact alarm permission result: $alarmResult');
+      if (androidImpl != null) {
+        await androidImpl.requestNotificationsPermission();
+        await androidImpl.requestExactAlarmsPermission();
       }
 
-      final iosImplementation = _notifications
+      final iosImpl = _notifications
           .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin
           >();
-
-      if (iosImplementation != null) {
-        final result = await iosImplementation.requestPermissions(
-          alert: true,
-          badge: true,
-          sound: true,
-        );
-        print('iOS permissions result: $result');
+      if (iosImpl != null) {
+        await iosImpl.requestPermissions(alert: true, badge: true, sound: true);
       }
-    } catch (e, stack) {
+    } catch (e) {
       print('Error requesting permissions: $e');
-      print('Stack trace: $stack');
     }
   }
 
+  // ── Public API ────────────────────────────────────────────────────
+
+  /// Whether the user has turned reminders on.
+  static Future<bool> areNotificationsEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_enabledKey) ?? false;
+  }
+
+  /// Get all configured reminder times.
+  static Future<List<ReminderTime>> getReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_remindersKey);
+    if (raw == null) return [];
+    try {
+      final list = (jsonDecode(raw) as List)
+          .map((e) => ReminderTime.fromJson(e as Map<String, dynamic>))
+          .toList();
+      // Sort by time of day
+      list.sort(
+        (a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute),
+      );
+      return list;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Add a new reminder time. Schedules notification immediately.
+  static Future<void> addReminder(ReminderTime time) async {
+    final reminders = await getReminders();
+    if (reminders.contains(time)) return; // duplicate guard
+    reminders.add(time);
+    await _saveReminders(reminders);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, true);
+
+    await _scheduleAll(reminders);
+  }
+
+  /// Remove a specific reminder time.
+  static Future<void> removeReminder(ReminderTime time) async {
+    final reminders = await getReminders();
+    reminders.remove(time);
+    await _saveReminders(reminders);
+
+    if (reminders.isEmpty) {
+      await disableNotifications();
+    } else {
+      // Re-schedule remaining
+      await _scheduleAll(reminders);
+    }
+  }
+
+  /// Replace an existing reminder with a new time.
+  static Future<void> updateReminder(
+    ReminderTime oldTime,
+    ReminderTime newTime,
+  ) async {
+    final reminders = await getReminders();
+    final index = reminders.indexOf(oldTime);
+    if (index >= 0) {
+      reminders[index] = newTime;
+    } else {
+      reminders.add(newTime);
+    }
+    await _saveReminders(reminders);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, true);
+
+    await _scheduleAll(reminders);
+  }
+
+  /// Enable notifications and schedule all saved reminders.
+  static Future<void> enableNotifications() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, true);
+    final reminders = await getReminders();
+    await _scheduleAll(reminders);
+  }
+
+  /// Cancel everything and mark as disabled.
+  static Future<void> disableNotifications() async {
+    await _notifications.cancelAll();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, false);
+  }
+
+  /// Cancel all and clear stored reminders completely.
+  static Future<void> cancelAllNotifications() async {
+    await _notifications.cancelAll();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, false);
+    await prefs.remove(_remindersKey);
+  }
+
+  // ── Legacy compatibility helpers (used by settings_screen) ────────
+
+  /// Get saved notification time (returns first reminder for backwards compat).
+  static Future<Map<String, int>?> getSavedNotificationTime() async {
+    final reminders = await getReminders();
+    if (reminders.isEmpty) return null;
+    return {'hour': reminders.first.hour, 'minute': reminders.first.minute};
+  }
+
+  /// Schedule a single daily notification (adds/replaces the first reminder).
   static Future<void> scheduleDailyNotification({
     required int hour,
     required int minute,
   }) async {
-    try {
-      print('Scheduling daily notification for $hour:$minute');
+    final newTime = ReminderTime(hour: hour, minute: minute);
+    final reminders = await getReminders();
 
-      // Save the time and enable notifications
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_hourKey, hour);
-      await prefs.setInt(_minuteKey, minute);
-      await prefs.setBool(_notificationEnabledKey, true);
-      print('Saved notification settings');
+    if (reminders.isEmpty) {
+      await addReminder(newTime);
+    } else {
+      await updateReminder(reminders.first, newTime);
+    }
+  }
 
-      // Cancel any existing notifications first
-      await _notifications.cancel(0);
-      print('Cancelled existing notifications');
+  /// Cancel the daily notification (disables everything).
+  static Future<void> cancelDailyNotification() async {
+    await disableNotifications();
+  }
 
-      final scheduledDate = _nextInstanceOfTime(hour, minute);
+  // ── Internals ─────────────────────────────────────────────────────
 
-      print('Scheduling notification for: $scheduledDate');
-      print('Current time: ${tz.TZDateTime.now(tz.local)}');
+  static Future<void> _saveReminders(List<ReminderTime> reminders) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = jsonEncode(reminders.map((r) => r.toJson()).toList());
+    await prefs.setString(_remindersKey, json);
+  }
 
-      // Schedule the notification using exact timing with permission to wake device
+  /// Cancel all pending and re-schedule from scratch.
+  static Future<void> _scheduleAll(List<ReminderTime> reminders) async {
+    await _notifications.cancelAll();
+
+    for (int i = 0; i < reminders.length; i++) {
+      final r = reminders[i];
+      final scheduledDate = _nextInstanceOfTime(r.hour, r.minute);
+
       await _notifications.zonedSchedule(
-        0,
+        i, // unique ID per reminder slot
         'Word Recall',
         'Time to review your words',
         scheduledDate,
@@ -173,145 +313,8 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
+        matchDateTimeComponents: DateTimeComponents.time, // repeats daily
       );
-
-      print('Daily notification scheduled successfully!');
-
-      // Schedule background checks
-      try {
-        await BackgroundNotificationService.scheduleBackgroundCheck();
-        print('Background check scheduled');
-      } catch (e) {
-        print('Error scheduling background check: $e');
-      }
-    } catch (e, stack) {
-      print('Error scheduling daily notification: $e');
-      print('Stack trace: $stack');
-      rethrow;
-    }
-  }
-
-  static Future<Map<String, int>?> getSavedNotificationTime() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final hour = prefs.getInt(_hourKey);
-      final minute = prefs.getInt(_minuteKey);
-
-      if (hour != null && minute != null) {
-        return {'hour': hour, 'minute': minute};
-      }
-      return null;
-    } catch (e) {
-      print('Error getting saved notification time: $e');
-      return null;
-    }
-  }
-
-  static Future<bool> areNotificationsEnabled() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(_notificationEnabledKey) ?? false;
-    } catch (e) {
-      print('Error checking notification status: $e');
-      return false;
-    }
-  }
-
-  static Future<void> showImmediateNotification(int dueCount) async {
-    try {
-      print('Attempting to show immediate notification for $dueCount words');
-
-      // Check permissions first
-      final hasPermission = await checkPermissions();
-      print('Has notification permission: $hasPermission');
-
-      if (!hasPermission) {
-        print('No notification permission - requesting...');
-        await requestPermissions();
-      }
-
-      await _notifications.show(
-        1,
-        'Word Recall',
-        '$dueCount ${dueCount == 1 ? 'word' : 'words'} waiting for review',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'immediate_recall',
-            'Immediate Recall',
-            channelDescription: 'Immediate word recall notifications',
-            importance: Importance.max,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: '@mipmap/ic_launcher',
-            channelShowBadge: true,
-            visibility: NotificationVisibility.public,
-            ticker: 'Word Recall',
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-          ),
-        ),
-      );
-
-      print('Immediate notification sent!');
-    } catch (e, stack) {
-      print('Error showing immediate notification: $e');
-      print('Stack trace: $stack');
-    }
-  }
-
-  static Future<void> showDueWordsNotification(int dueCount) async {
-    if (dueCount > 0) {
-      await showImmediateNotification(dueCount);
-    }
-  }
-
-  static Future<void> cancelAllNotifications() async {
-    try {
-      print('Cancelling all notifications');
-      await _notifications.cancelAll();
-
-      // Disable notifications in preferences
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_notificationEnabledKey, false);
-
-      // Cancel background checks
-      try {
-        await BackgroundNotificationService.cancelBackgroundCheck();
-        print('Background check cancelled');
-      } catch (e) {
-        print('Error canceling background check: $e');
-      }
-
-      print('All notifications cancelled');
-    } catch (e) {
-      print('Error canceling notifications: $e');
-    }
-  }
-
-  static Future<void> cancelDailyNotification() async {
-    try {
-      print('Cancelling daily notification');
-      await _notifications.cancel(0);
-
-      // Disable notifications but keep the time saved
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_notificationEnabledKey, false);
-
-      // Cancel background checks
-      try {
-        await BackgroundNotificationService.cancelBackgroundCheck();
-      } catch (e) {
-        print('Error canceling background check: $e');
-      }
-
-      print('Daily notification cancelled');
-    } catch (e) {
-      print('Error canceling daily notification: $e');
     }
   }
 
@@ -331,41 +334,5 @@ class NotificationService {
     }
 
     return scheduledDate;
-  }
-
-  static Future<void> checkAndNotifyDueWords(int dueCount) async {
-    try {
-      print('Checking due words: $dueCount');
-
-      final prefs = await SharedPreferences.getInstance();
-      final isEnabled = prefs.getBool(_notificationEnabledKey) ?? false;
-
-      print('Notifications enabled: $isEnabled');
-
-      if (isEnabled && dueCount > 0) {
-        final lastNotificationDate = prefs.getString('last_due_notification');
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-
-        print('Last notification: $lastNotificationDate');
-        print('Today: ${today.toIso8601String().split('T')[0]}');
-
-        if (lastNotificationDate == null ||
-            lastNotificationDate != today.toIso8601String().split('T')[0]) {
-          print('Sending due words notification...');
-          await showDueWordsNotification(dueCount);
-          await prefs.setString(
-            'last_due_notification',
-            today.toIso8601String().split('T')[0],
-          );
-          print('Due words notification sent');
-        } else {
-          print('Already notified today');
-        }
-      }
-    } catch (e, stack) {
-      print('Error checking and notifying due words: $e');
-      print('Stack trace: $stack');
-    }
   }
 }
