@@ -33,6 +33,17 @@ class ThemePalette {
 // Preset palettes for dark mode - Enhanced colors
 final darkPalettes = [
   const ThemePalette(
+    name: 'Cherry Blossom',
+    description: 'Soft pink petals',
+    primary: Color(0xFFF472B6),
+    accent: Color(0xFFEC4899),
+    background: Color(0xFF120A0F),
+    surface: Color(0xFF1F141C),
+    success: Color(0xFF4ADE80),
+    warning: Color(0xFFFBBF24),
+    error: Color(0xFFFDA4AF),
+  ),
+  const ThemePalette(
     name: 'Midnight Purple',
     description: 'Deep violet dreams',
     primary: Color(0xFF8B7CFF),
@@ -77,17 +88,6 @@ final darkPalettes = [
     error: Color(0xFFEF4444),
   ),
   const ThemePalette(
-    name: 'Cherry Blossom',
-    description: 'Soft pink petals',
-    primary: Color(0xFFF472B6),
-    accent: Color(0xFFEC4899),
-    background: Color(0xFF120A0F),
-    surface: Color(0xFF1F141C),
-    success: Color(0xFF4ADE80),
-    warning: Color(0xFFFBBF24),
-    error: Color(0xFFFDA4AF),
-  ),
-  const ThemePalette(
     name: 'Cosmic Void',
     description: 'Pure darkness',
     primary: Color(0xFF818CF8),
@@ -124,6 +124,17 @@ final darkPalettes = [
 
 // Preset palettes for light mode - Enhanced colors
 final lightPalettes = [
+  const ThemePalette(
+    name: 'Cherry Blossom',
+    description: 'Soft pink petals',
+    primary: Color(0xFFEC4899),
+    accent: Color(0xFFF472B6),
+    background: Color(0xFFFFF1F2),
+    surface: Color(0xFFFFFFFF),
+    success: Color(0xFF4ADE80),
+    warning: Color(0xFFFBBF24),
+    error: Color(0xFFFDA4AF),
+  ),
   const ThemePalette(
     name: 'Nordic Sky',
     description: 'Clean and modern',

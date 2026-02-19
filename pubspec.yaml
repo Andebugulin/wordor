@@ -34,6 +34,10 @@ dependencies:
   speech_to_text: ^7.0.0
   permission_handler: ^11.0.1
 
+  file_picker: ^8.0.0
+
+  share_plus: ^10.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

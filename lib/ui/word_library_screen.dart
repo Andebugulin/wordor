@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:drift/drift.dart' as drift;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import '../data/database.dart';
 import '../providers/app_providers.dart';
 import '../services/tts_service.dart';
@@ -102,51 +104,67 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
       return;
     }
 
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File(path.join(dir.path, 'wordor_export.csv'));
-      await file.writeAsString(csv);
+    // Ask for filename
+    final filenameController = TextEditingController(text: 'wordor_export');
 
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Export Successful'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Saved to:\n${file.path}'),
-                const SizedBox(height: 16),
-                const Text(
-                  'To use in Anki:\n'
-                  '1. Copy the .csv file to your computer\n'
-                  '2. In Anki: File → Import\n'
-                  '3. Select the .csv file\n'
-                  '4. Map columns: Field 1 → Front, Field 2 → Back',
-                  style: TextStyle(fontSize: 13, height: 1.5),
-                ),
-              ],
+    final fileName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Export CSV'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Choose a file name, then pick where to save or share it.',
+              style: Theme.of(ctx).textTheme.bodyMedium,
             ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: csv));
-                  Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('CSV copied to clipboard')),
-                  );
-                },
-                child: const Text('Copy CSV'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: filenameController,
+              decoration: const InputDecoration(
+                labelText: 'File name',
+                suffixText: '.csv',
+                isDense: true,
               ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Done'),
-              ),
-            ],
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
           ),
-        );
-      }
+          TextButton(
+            onPressed: () {
+              final name = filenameController.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(ctx, name);
+            },
+            child: const Text('Export'),
+          ),
+        ],
+      ),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      filenameController.dispose();
+    });
+
+    if (fileName == null || !mounted) return;
+
+    try {
+      final safeName = '${fileName.replaceAll(RegExp(r'[^\w\-. ]'), '_')}.csv';
+
+      // Write to a temp file, then open the native share sheet
+      // so the user can pick: Save to Downloads, Drive, email, etc.
+      final dir = await getApplicationCacheDirectory();
+      final tempFile = File(path.join(dir.path, safeName));
+      await tempFile.writeAsString(csv);
+
+      final xFile = XFile(tempFile.path, mimeType: 'text/csv');
+      await Share.shareXFiles([xFile], subject: safeName);
     } catch (e) {
       // Fallback: copy to clipboard
       await Clipboard.setData(ClipboardData(text: csv));
@@ -161,85 +179,186 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
   // ── Anki Import (CSV) ────────────────────────────────────────────
 
   Future<void> _importCsv() async {
-    final controller = TextEditingController();
+    String? csvContent;
     String sourceLang = 'EN';
     String targetLang = 'EN';
+    final pasteController = TextEditingController();
 
     final result = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Import from CSV'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Paste your CSV content below.\n'
-                  'Format: front,back or front,back,tags',
-                  style: TextStyle(fontSize: 13, height: 1.5),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Source lang',
-                          hintText: 'e.g. FI',
-                          isDense: true,
-                        ),
-                        onChanged: (v) => sourceLang = v.toUpperCase(),
-                        controller: TextEditingController(text: sourceLang),
-                      ),
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Import from CSV'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Format: front,back or front,back,tags',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(ctx).colorScheme.onSurfaceVariant,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          labelText: 'Target lang',
-                          hintText: 'e.g. EN',
-                          isDense: true,
-                        ),
-                        onChanged: (v) => targetLang = v.toUpperCase(),
-                        controller: TextEditingController(text: targetLang),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  maxLines: 8,
-                  decoration: const InputDecoration(
-                    hintText: 'Paste CSV content here...',
-                    border: OutlineInputBorder(),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+
+                  // ── Pick file button ──
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['csv', 'txt'],
+                        );
+                        if (picked != null &&
+                            picked.files.single.path != null) {
+                          final file = File(picked.files.single.path!);
+                          final content = await file.readAsString();
+                          setDialogState(() {
+                            csvContent = content;
+                            pasteController.text = '';
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.file_open_outlined, size: 18),
+                      label: Text(
+                        csvContent != null
+                            ? 'File loaded ✓ (tap to change)'
+                            : 'Choose CSV file',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(
+                          color: csvContent != null
+                              ? Theme.of(ctx).colorScheme.primary
+                              : Theme.of(ctx).dividerColor,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // ── OR divider ──
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      children: [
+                        const Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'OR',
+                            style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        const Expanded(child: Divider()),
+                      ],
+                    ),
+                  ),
+
+                  // ── Paste field (smaller) ──
+                  TextField(
+                    controller: pasteController,
+                    maxLines: 3,
+                    style: const TextStyle(fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Paste CSV content here...',
+                      hintStyle: const TextStyle(fontSize: 13),
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.all(12),
+                      isDense: true,
+                      suffixIcon: pasteController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                setDialogState(() {
+                                  pasteController.clear();
+                                });
+                              },
+                            )
+                          : null,
+                    ),
+                    onChanged: (v) {
+                      setDialogState(() {
+                        if (v.trim().isNotEmpty) {
+                          csvContent = null; // prefer paste over file
+                        }
+                      });
+                    },
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Language selectors ──
+                  Text(
+                    'Languages',
+                    style: Theme.of(ctx).textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _LanguageDropdown(
+                          label: 'Source',
+                          value: sourceLang,
+                          onChanged: (v) =>
+                              setDialogState(() => sourceLang = v),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(
+                          Icons.arrow_forward,
+                          size: 18,
+                          color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      Expanded(
+                        child: _LanguageDropdown(
+                          label: 'Target',
+                          value: targetLang,
+                          onChanged: (v) =>
+                              setDialogState(() => targetLang = v),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                if (controller.text.trim().isEmpty) return;
-                Navigator.pop(ctx, {
-                  'content': controller.text,
-                  'sourceLang': sourceLang,
-                  'targetLang': targetLang,
-                });
-              },
-              child: const Text('Import'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final content = pasteController.text.trim().isNotEmpty
+                      ? pasteController.text
+                      : csvContent;
+                  if (content == null || content.trim().isEmpty) return;
+                  Navigator.pop(ctx, {
+                    'content': content,
+                    'sourceLang': sourceLang,
+                    'targetLang': targetLang,
+                  });
+                },
+                child: const Text('Import'),
+              ),
+            ],
+          );
+        },
       ),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      pasteController.dispose();
+    });
 
     if (result != null && mounted) {
       final db = ref.read(databaseProvider);
@@ -513,6 +632,261 @@ class _WordLibraryScreenState extends ConsumerState<WordLibraryScreen> {
                 );
               },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Searchable language dropdown for import dialog ───────────────────
+
+class _LanguageDropdown extends StatelessWidget {
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  static const Map<String, String> _allLanguages = {
+    'AR': 'Arabic',
+    'BG': 'Bulgarian',
+    'CS': 'Czech',
+    'DA': 'Danish',
+    'DE': 'German',
+    'EL': 'Greek',
+    'EN': 'English',
+    'ES': 'Spanish',
+    'ET': 'Estonian',
+    'FI': 'Finnish',
+    'FR': 'French',
+    'HU': 'Hungarian',
+    'ID': 'Indonesian',
+    'IT': 'Italian',
+    'JA': 'Japanese',
+    'KO': 'Korean',
+    'LT': 'Lithuanian',
+    'LV': 'Latvian',
+    'NB': 'Norwegian',
+    'NL': 'Dutch',
+    'PL': 'Polish',
+    'PT': 'Portuguese',
+    'RO': 'Romanian',
+    'RU': 'Russian',
+    'SK': 'Slovak',
+    'SL': 'Slovenian',
+    'SV': 'Swedish',
+    'TR': 'Turkish',
+    'UK': 'Ukrainian',
+    'ZH': 'Chinese',
+  };
+
+  const _LanguageDropdown({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final langName = _allLanguages[value] ?? value;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    return InkWell(
+      onTap: () async {
+        final selected = await showModalBottomSheet<String>(
+          context: context,
+          isScrollControlled: true,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (ctx) =>
+              _LanguageSearchSheet(selected: value, languages: _allLanguages),
+        );
+        if (selected != null) {
+          onChanged(selected);
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.outline.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$value – $langName',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.expand_more, size: 18, color: colors.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Bottom sheet with search for language selection ───────────────────
+
+class _LanguageSearchSheet extends StatefulWidget {
+  final String selected;
+  final Map<String, String> languages;
+
+  const _LanguageSearchSheet({required this.selected, required this.languages});
+
+  @override
+  State<_LanguageSearchSheet> createState() => _LanguageSearchSheetState();
+}
+
+class _LanguageSearchSheetState extends State<_LanguageSearchSheet> {
+  final _controller = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<MapEntry<String, String>> get _filtered {
+    if (_query.isEmpty) return widget.languages.entries.toList();
+    final q = _query.toLowerCase();
+    return widget.languages.entries.where((e) {
+      return e.value.toLowerCase().contains(q) ||
+          e.key.toLowerCase().contains(q);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final filtered = _filtered;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.85,
+      expand: false,
+      builder: (ctx, scrollController) => Column(
+        children: [
+          // Handle bar
+          Container(
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: colors.onSurfaceVariant.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Search
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: TextField(
+              controller: _controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Search by name or code...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                suffixIcon: _query.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _controller.clear();
+                          setState(() => _query = '');
+                        },
+                      )
+                    : null,
+              ),
+              onChanged: (v) => setState(() => _query = v),
+            ),
+          ),
+
+          // Language list
+          Expanded(
+            child: filtered.isEmpty
+                ? Center(
+                    child: Text(
+                      'No languages found',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  )
+                : ListView.builder(
+                    controller: scrollController,
+                    itemCount: filtered.length,
+                    itemBuilder: (ctx, i) {
+                      final entry = filtered[i];
+                      final isSelected = entry.key == widget.selected;
+                      return ListTile(
+                        dense: true,
+                        leading: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? colors.primary.withOpacity(0.1)
+                                : colors.surface,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Center(
+                            child: Text(
+                              entry.key,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                color: isSelected
+                                    ? colors.primary
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          entry.value,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                          ),
+                        ),
+                        trailing: isSelected
+                            ? Icon(
+                                Icons.check_circle,
+                                color: colors.primary,
+                                size: 22,
+                              )
+                            : null,
+                        onTap: () => Navigator.pop(context, entry.key),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

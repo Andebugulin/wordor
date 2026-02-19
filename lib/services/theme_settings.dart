@@ -12,22 +12,22 @@ class ThemeSettings {
   static const String _errorColorKey = 'error_color';
 
   // ── Cherry Blossom Dark ──────────────────────────────────────────
-  static const Color defaultDarkPrimary = Color(0xFFF2A7B3); // soft sakura pink
-  static const Color defaultDarkAccent = Color(0xFFE88FA0); // deeper rose
-  static const Color defaultDarkBackground = Color(0xFF1A0F14); // dark cherry
-  static const Color defaultDarkSurface = Color(0xFF241820); // dark rose
-  static const Color defaultDarkSuccess = Color(0xFF8BD8A8); // mint green
-  static const Color defaultDarkWarning = Color(0xFFF5C878); // warm gold
-  static const Color defaultDarkError = Color(0xFFE86B6B); // soft red
+  static const Color defaultDarkPrimary = Color(0xFFF472B6); // sakura pink
+  static const Color defaultDarkAccent = Color(0xFFEC4899); // deeper rose
+  static const Color defaultDarkBackground = Color(0xFF120A0F); // dark cherry
+  static const Color defaultDarkSurface = Color(0xFF1F141C); // dark rose
+  static const Color defaultDarkSuccess = Color(0xFF4ADE80); // green
+  static const Color defaultDarkWarning = Color(0xFFFBBF24); // warm gold
+  static const Color defaultDarkError = Color(0xFFFDA4AF); // soft rose red
 
   // ── Cherry Blossom Light ─────────────────────────────────────────
-  static const Color defaultLightPrimary = Color(0xFFD4768B); // rose
-  static const Color defaultLightAccent = Color(0xFFC2546E); // deeper rose
-  static const Color defaultLightBackground = Color(0xFFFFF5F7); // blush white
+  static const Color defaultLightPrimary = Color(0xFFEC4899); // pink
+  static const Color defaultLightAccent = Color(0xFFF472B6); // lighter pink
+  static const Color defaultLightBackground = Color(0xFFFFF1F2); // blush white
   static const Color defaultLightSurface = Color(0xFFFFFFFF); // white
-  static const Color defaultLightSuccess = Color(0xFF4CAF85); // green
-  static const Color defaultLightWarning = Color(0xFFE5A635); // amber
-  static const Color defaultLightError = Color(0xFFD94444); // red
+  static const Color defaultLightSuccess = Color(0xFF4ADE80); // green
+  static const Color defaultLightWarning = Color(0xFFFBBF24); // amber
+  static const Color defaultLightError = Color(0xFFFDA4AF); // rose red
 
   Future<void> saveThemeMode(ThemeMode mode) async {
     final prefs = await SharedPreferences.getInstance();
