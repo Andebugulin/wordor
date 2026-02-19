@@ -1,7 +1,6 @@
 import 'dart:convert';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest.dart' as tz;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// A single scheduled reminder (hour + minute).
@@ -27,22 +26,96 @@ class ReminderTime {
   int get hashCode => hour * 60 + minute;
 }
 
+// ── Top-level alarm callback ────────────────────────────────────────
+// Runs in a separate isolate. Shows notification, then reschedules
+// itself for tomorrow.
+
+@pragma('vm:entry-point')
+Future<void> _alarmCallback(int alarmId) async {
+  // 1. Show the notification
+  final notifications = FlutterLocalNotificationsPlugin();
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const initSettings = InitializationSettings(android: androidSettings);
+  await notifications.initialize(initSettings);
+
+  await notifications.show(
+    alarmId,
+    'Word Recall',
+    'Time to review your words!',
+    const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'daily_recall',
+        'Daily Recall',
+        channelDescription: 'Daily word recall reminders',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        icon: '@mipmap/ic_launcher',
+        channelShowBadge: true,
+        visibility: NotificationVisibility.public,
+      ),
+    ),
+  );
+
+  // 2. Reschedule for tomorrow
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool('notification_enabled') ?? false;
+    if (!enabled) return;
+
+    final raw = prefs.getString('notification_reminders');
+    if (raw == null) return;
+
+    final reminders = (jsonDecode(raw) as List)
+        .map((e) => ReminderTime.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    final index = alarmId - 100;
+    if (index < 0 || index >= reminders.length) return;
+
+    final r = reminders[index];
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    final nextFire = DateTime(
+      tomorrow.year,
+      tomorrow.month,
+      tomorrow.day,
+      r.hour,
+      r.minute,
+    );
+
+    await AndroidAlarmManager.oneShotAt(
+      nextFire,
+      alarmId,
+      _alarmCallback,
+      exact: true,
+      wakeup: true,
+      allowWhileIdle: true,
+      rescheduleOnReboot: true,
+    );
+    print('✓ Rescheduled alarm $alarmId for $nextFire');
+  } catch (e) {
+    print('✗ Error rescheduling alarm $alarmId: $e');
+  }
+}
+
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notifications =
       FlutterLocalNotificationsPlugin();
 
   static const String _enabledKey = 'notification_enabled';
-  static const String _remindersKey = 'notification_reminders'; // JSON list
+  static const String _remindersKey = 'notification_reminders';
 
-  // Legacy keys for migration
   static const String _legacyHourKey = 'notification_hour';
   static const String _legacyMinuteKey = 'notification_minute';
+
+  static int _alarmId(int index) => 100 + index;
 
   // ── Initialization ────────────────────────────────────────────────
 
   static Future<void> initialize() async {
     try {
-      tz.initializeTimeZones();
+      await AndroidAlarmManager.initialize();
 
       const androidSettings = AndroidInitializationSettings(
         '@mipmap/ic_launcher',
@@ -52,30 +125,22 @@ class NotificationService {
         requestBadgePermission: true,
         requestSoundPermission: true,
       );
-
       const initSettings = InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
       );
-
       await _notifications.initialize(
         initSettings,
-        onDidReceiveNotificationResponse: (details) {
-          // Handle notification tap (could navigate to recall screen)
-        },
+        onDidReceiveNotificationResponse: (details) {},
       );
 
-      // Migrate legacy single-time to new multi-time format
       await _migrateLegacySettings();
-
-      // Restore scheduled notifications
       await _restoreScheduledNotifications();
     } catch (e) {
       print('Error initializing notifications: $e');
     }
   }
 
-  /// Migrate old hour/minute prefs to the new reminders list.
   static Future<void> _migrateLegacySettings() async {
     final prefs = await SharedPreferences.getInstance();
     final legacyHour = prefs.getInt(_legacyHourKey);
@@ -88,13 +153,11 @@ class NotificationService {
           ReminderTime(hour: legacyHour, minute: legacyMinute),
         ]);
       }
-      // Clean up legacy keys
       await prefs.remove(_legacyHourKey);
       await prefs.remove(_legacyMinuteKey);
     }
   }
 
-  /// Re-schedule all saved reminders on cold start.
   static Future<void> _restoreScheduledNotifications() async {
     final prefs = await SharedPreferences.getInstance();
     final isEnabled = prefs.getBool(_enabledKey) ?? false;
@@ -129,7 +192,6 @@ class NotificationService {
           >();
       if (androidImpl != null) {
         await androidImpl.requestNotificationsPermission();
-        await androidImpl.requestExactAlarmsPermission();
       }
 
       final iosImpl = _notifications
@@ -144,15 +206,79 @@ class NotificationService {
     }
   }
 
+  // ── Debug / Test ──────────────────────────────────────────────────
+
+  static Future<void> showTestNotification() async {
+    await _notifications.show(
+      999,
+      'Test Notification',
+      'If you see this, notifications work!',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'daily_recall',
+          'Daily Recall',
+          channelDescription: 'Daily word recall reminders',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          enableVibration: true,
+          icon: '@mipmap/ic_launcher',
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+    );
+  }
+
+  static Future<String> showScheduledTestNotification() async {
+    try {
+      final fireAt = DateTime.now().add(const Duration(seconds: 15));
+      final success = await AndroidAlarmManager.oneShotAt(
+        fireAt,
+        998,
+        _alarmCallback,
+        exact: true,
+        wakeup: true,
+        allowWhileIdle: true,
+      );
+      return success
+          ? 'Alarm set for $fireAt\nWait ~15 seconds.'
+          : 'AlarmManager returned false.';
+    } catch (e) {
+      return 'ERROR: $e';
+    }
+  }
+
+  static Future<Map<String, dynamic>> debugInfo() async {
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool(_enabledKey) ?? false;
+    final reminders = await getReminders();
+    final hasPermission = await checkPermissions();
+    final now = DateTime.now();
+
+    return {
+      'now': now.toString(),
+      'notificationsEnabled': enabled,
+      'hasPermission': hasPermission,
+      'remindersCount': reminders.length,
+      'reminders': reminders.map((r) => r.format24h()).toList(),
+      'nextFireTimes': reminders.map((r) {
+        final next = _nextInstanceOfTime(r.hour, r.minute);
+        return '${r.format24h()} → $next';
+      }).toList(),
+    };
+  }
+
   // ── Public API ────────────────────────────────────────────────────
 
-  /// Whether the user has turned reminders on.
   static Future<bool> areNotificationsEnabled() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_enabledKey) ?? false;
   }
 
-  /// Get all configured reminder times.
   static Future<List<ReminderTime>> getReminders() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_remindersKey);
@@ -161,7 +287,6 @@ class NotificationService {
       final list = (jsonDecode(raw) as List)
           .map((e) => ReminderTime.fromJson(e as Map<String, dynamic>))
           .toList();
-      // Sort by time of day
       list.sort(
         (a, b) => (a.hour * 60 + a.minute).compareTo(b.hour * 60 + b.minute),
       );
@@ -171,10 +296,9 @@ class NotificationService {
     }
   }
 
-  /// Add a new reminder time. Schedules notification immediately.
   static Future<void> addReminder(ReminderTime time) async {
     final reminders = await getReminders();
-    if (reminders.contains(time)) return; // duplicate guard
+    if (reminders.contains(time)) return;
     reminders.add(time);
     await _saveReminders(reminders);
 
@@ -184,21 +308,22 @@ class NotificationService {
     await _scheduleAll(reminders);
   }
 
-  /// Remove a specific reminder time.
   static Future<void> removeReminder(ReminderTime time) async {
     final reminders = await getReminders();
-    reminders.remove(time);
+    final idx = reminders.indexOf(time);
+    if (idx >= 0) {
+      await AndroidAlarmManager.cancel(_alarmId(idx));
+      reminders.removeAt(idx);
+    }
     await _saveReminders(reminders);
 
     if (reminders.isEmpty) {
       await disableNotifications();
     } else {
-      // Re-schedule remaining
       await _scheduleAll(reminders);
     }
   }
 
-  /// Replace an existing reminder with a new time.
   static Future<void> updateReminder(
     ReminderTime oldTime,
     ReminderTime newTime,
@@ -218,7 +343,6 @@ class NotificationService {
     await _scheduleAll(reminders);
   }
 
-  /// Enable notifications and schedule all saved reminders.
   static Future<void> enableNotifications() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_enabledKey, true);
@@ -226,31 +350,27 @@ class NotificationService {
     await _scheduleAll(reminders);
   }
 
-  /// Cancel everything and mark as disabled.
   static Future<void> disableNotifications() async {
-    await _notifications.cancelAll();
+    await _cancelAllAlarms();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_enabledKey, false);
   }
 
-  /// Cancel all and clear stored reminders completely.
   static Future<void> cancelAllNotifications() async {
-    await _notifications.cancelAll();
+    await _cancelAllAlarms();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_enabledKey, false);
     await prefs.remove(_remindersKey);
   }
 
-  // ── Legacy compatibility helpers (used by settings_screen) ────────
+  // ── Legacy compatibility ──────────────────────────────────────────
 
-  /// Get saved notification time (returns first reminder for backwards compat).
   static Future<Map<String, int>?> getSavedNotificationTime() async {
     final reminders = await getReminders();
     if (reminders.isEmpty) return null;
     return {'hour': reminders.first.hour, 'minute': reminders.first.minute};
   }
 
-  /// Schedule a single daily notification (adds/replaces the first reminder).
   static Future<void> scheduleDailyNotification({
     required int hour,
     required int minute,
@@ -265,7 +385,6 @@ class NotificationService {
     }
   }
 
-  /// Cancel the daily notification (disables everything).
   static Future<void> cancelDailyNotification() async {
     await disableNotifications();
   }
@@ -278,61 +397,49 @@ class NotificationService {
     await prefs.setString(_remindersKey, json);
   }
 
-  /// Cancel all pending and re-schedule from scratch.
+  static Future<void> _cancelAllAlarms() async {
+    for (int i = 0; i < 5; i++) {
+      await AndroidAlarmManager.cancel(_alarmId(i));
+    }
+    await AndroidAlarmManager.cancel(998);
+  }
+
+  /// Schedule all reminders using oneShotAt.
+  /// Each alarm reschedules itself for the next day in _alarmCallback.
   static Future<void> _scheduleAll(List<ReminderTime> reminders) async {
-    await _notifications.cancelAll();
+    await _cancelAllAlarms();
 
     for (int i = 0; i < reminders.length; i++) {
       final r = reminders[i];
-      final scheduledDate = _nextInstanceOfTime(r.hour, r.minute);
+      final nextFire = _nextInstanceOfTime(r.hour, r.minute);
 
-      await _notifications.zonedSchedule(
-        i, // unique ID per reminder slot
-        'Word Recall',
-        'Time to review your words',
-        scheduledDate,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'daily_recall',
-            'Daily Recall',
-            channelDescription: 'Daily word recall reminders',
-            importance: Importance.high,
-            priority: Priority.high,
-            playSound: true,
-            enableVibration: true,
-            icon: '@mipmap/ic_launcher',
-            channelShowBadge: true,
-            visibility: NotificationVisibility.public,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time, // repeats daily
-      );
+      try {
+        final success = await AndroidAlarmManager.oneShotAt(
+          nextFire,
+          _alarmId(i),
+          _alarmCallback,
+          exact: true,
+          wakeup: true,
+          allowWhileIdle: true,
+          rescheduleOnReboot: true,
+        );
+        print(
+          '${success ? "✓" : "✗"} Alarm ${_alarmId(i)} → ${r.format24h()} (fires $nextFire)',
+        );
+      } catch (e) {
+        print('✗ Alarm ${_alarmId(i)} error: $e');
+      }
     }
   }
 
-  static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
-    final now = tz.TZDateTime.now(tz.local);
-    var scheduledDate = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      hour,
-      minute,
-    );
+  static DateTime _nextInstanceOfTime(int hour, int minute) {
+    final now = DateTime.now();
+    var scheduled = DateTime(now.year, now.month, now.day, hour, minute);
 
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
     }
 
-    return scheduledDate;
+    return scheduled;
   }
 }
